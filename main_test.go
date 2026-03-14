@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/navidrome/navidrome/plugins/pdk/go/host"
 	"github.com/navidrome/navidrome/plugins/pdk/go/pdk"
@@ -139,6 +140,97 @@ var _ = Describe("appleMusicAgent", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(status).To(Equal(int32(200)))
 			Expect(body).To(Equal([]byte("response")))
+		})
+	})
+
+	Describe("findBestArtistMatch", func() {
+		It("returns exact case-insensitive match", func() {
+			results := []itunesArtistResult{
+				{WrapperType: "artist", ArtistName: "Taylor", ArtistID: 1},
+				{WrapperType: "artist", ArtistName: "Taylor Swift", ArtistID: 2},
+			}
+			match := findBestArtistMatch("taylor swift", results)
+			Expect(match).ToNot(BeNil())
+			Expect(match.ArtistID).To(Equal(int64(2)))
+		})
+
+		It("falls back to first artist when no exact match", func() {
+			results := []itunesArtistResult{
+				{WrapperType: "collection", ArtistName: "Album", ArtistID: 1},
+				{WrapperType: "artist", ArtistName: "Some Artist", ArtistID: 2},
+			}
+			match := findBestArtistMatch("query", results)
+			Expect(match).ToNot(BeNil())
+			Expect(match.ArtistID).To(Equal(int64(2)))
+		})
+
+		It("skips non-artist results", func() {
+			results := []itunesArtistResult{
+				{WrapperType: "collection", ArtistName: "Taylor Swift", ArtistID: 1},
+			}
+			match := findBestArtistMatch("Taylor Swift", results)
+			Expect(match).To(BeNil())
+		})
+
+		It("returns nil for empty results", func() {
+			match := findBestArtistMatch("anything", nil)
+			Expect(match).To(BeNil())
+		})
+	})
+
+	Describe("resolveArtistID", func() {
+		BeforeEach(func() {
+			pdk.PDKMock.On("Log", mock.Anything, mock.Anything).Maybe()
+		})
+
+		It("returns cached artist ID", func() {
+			data, _ := json.Marshal(cachedArtistID{ArtistID: 159260351})
+			host.KVStoreMock.On("Get", "artist:taylor swift").Return(data, true, nil)
+			host.ConfigMock.On("Get", "countries").Return("us", true)
+
+			id, err := resolveArtistID("Taylor Swift")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(id).To(Equal(int64(159260351)))
+		})
+
+		It("searches iTunes API on cache miss", func() {
+			host.KVStoreMock.On("Get", "artist:taylor swift").Return([]byte(nil), false, nil)
+			host.ConfigMock.On("Get", "countries").Return("us", true)
+
+			searchResp := itunesSearchResponse{
+				ResultCount: 1,
+				Results: []itunesArtistResult{
+					{WrapperType: "artist", ArtistName: "Taylor Swift", ArtistID: 159260351},
+				},
+			}
+			respBody, _ := json.Marshal(searchResp)
+			host.HTTPMock.On("Send", mock.MatchedBy(func(req host.HTTPRequest) bool {
+				return req.Method == "GET" && strings.Contains(req.URL, "itunes.apple.com/search")
+			})).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
+
+			cachedData, _ := json.Marshal(cachedArtistID{ArtistID: 159260351})
+			host.KVStoreMock.On("Set", "artist:taylor swift", cachedData).Return(nil)
+
+			id, err := resolveArtistID("Taylor Swift")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(id).To(Equal(int64(159260351)))
+		})
+
+		It("returns error for empty artist name", func() {
+			_, err := resolveArtistID("")
+			Expect(err).To(MatchError("empty artist name"))
+		})
+
+		It("returns error when no results found", func() {
+			host.KVStoreMock.On("Get", "artist:unknown").Return([]byte(nil), false, nil)
+			host.ConfigMock.On("Get", "countries").Return("us", true)
+
+			searchResp := itunesSearchResponse{ResultCount: 0, Results: nil}
+			respBody, _ := json.Marshal(searchResp)
+			host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
+
+			_, err := resolveArtistID("Unknown")
+			Expect(err).To(MatchError("no artist found"))
 		})
 	})
 })
