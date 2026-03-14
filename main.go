@@ -65,12 +65,9 @@ type itunesSearchResponse struct {
 }
 
 type itunesArtistResult struct {
-	WrapperType   string `json:"wrapperType"`
-	ArtistType    string `json:"artistType"`
-	ArtistName    string `json:"artistName"`
-	ArtistLinkURL string `json:"artistLinkUrl"`
-	ArtistID      int64  `json:"artistId"`
-	PrimaryGenre  string `json:"primaryGenreName"`
+	WrapperType string `json:"wrapperType"`
+	ArtistName  string `json:"artistName"`
+	ArtistID    int64  `json:"artistId"`
 }
 
 type itunesLookupResponse struct {
@@ -172,7 +169,11 @@ func getCacheTTLSeconds() int64 {
 // kvGet retrieves and unmarshals a JSON value from KVStore.
 func kvGet(key string, target any) bool {
 	data, exists, err := host.KVStoreGet(key)
-	if err != nil || !exists {
+	if err != nil {
+		pdk.Log(pdk.LogWarn, "KVStore error for key "+key+": "+err.Error())
+		return false
+	}
+	if !exists {
 		return false
 	}
 	if err := json.Unmarshal(data, target); err != nil {
@@ -589,7 +590,7 @@ func fetchArtistPage(artistID int64, wantField pageField) (*parsedPageData, erro
 
 		html := string(body)
 		pdk.Log(pdk.LogDebug, fmt.Sprintf("received page for country %s: %d bytes, status %d", country, len(body), statusCode))
-		page := parsePage(html)
+		page := parsePage(html, wantField)
 
 		// Cache the result
 		if err := kvSetWithTTL(cacheKey, page, ttl); err != nil {
@@ -610,35 +611,41 @@ func fetchArtistPage(artistID int64, wantField pageField) (*parsedPageData, erro
 	return nil, errors.New("no page data found for any country")
 }
 
-// parsePage extracts all metadata from an Apple Music artist HTML page.
-func parsePage(html string) *parsedPageData {
+// parsePage extracts metadata from an Apple Music artist HTML page.
+// Only parses fields relevant to wantField to avoid unnecessary work.
+func parsePage(html string, wantField pageField) *parsedPageData {
 	page := &parsedPageData{}
 
 	pdk.Log(pdk.LogDebug, fmt.Sprintf("parsing page HTML (%d bytes)", len(html)))
 
 	// Parse JSON-LD for biography and image
-	ld, err := parseJSONLD(html)
-	if err == nil {
-		page.Biography = ld.Description
-		page.ImageURL = ld.Image
-		pdk.Log(pdk.LogDebug, fmt.Sprintf("JSON-LD parsed: type=%s, name=%s, bio=%d chars, image=%s",
-			ld.Type, ld.Name, len(ld.Description), ld.Image))
-	} else {
-		pdk.Log(pdk.LogDebug, "JSON-LD parsing failed: "+err.Error())
-	}
-
-	// Fallback to OpenGraph for image
-	if page.ImageURL == "" {
-		page.ImageURL = parseOpenGraphImage(html)
-		if page.ImageURL != "" {
-			pdk.Log(pdk.LogDebug, "OpenGraph image found: "+page.ImageURL)
+	if wantField != fieldSimilar {
+		ld, err := parseJSONLD(html)
+		if err == nil {
+			page.Biography = ld.Description
+			page.ImageURL = ld.Image
+			pdk.Log(pdk.LogDebug, fmt.Sprintf("JSON-LD parsed: type=%s, name=%s, bio=%d chars, image=%s",
+				ld.Type, ld.Name, len(ld.Description), ld.Image))
 		} else {
-			pdk.Log(pdk.LogDebug, "no OpenGraph image found")
+			pdk.Log(pdk.LogDebug, "JSON-LD parsing failed: "+err.Error())
+		}
+
+		// Fallback to OpenGraph for image
+		if page.ImageURL == "" {
+			page.ImageURL = parseOpenGraphImage(html)
+			if page.ImageURL != "" {
+				pdk.Log(pdk.LogDebug, "OpenGraph image found: "+page.ImageURL)
+			} else {
+				pdk.Log(pdk.LogDebug, "no OpenGraph image found")
+			}
 		}
 	}
 
-	// Parse similar artists
-	page.SimilarArtists = parseSimilarArtists(html)
+	// Parse similar artists only when needed
+	if wantField == fieldSimilar || wantField == fieldAny {
+		page.SimilarArtists = parseSimilarArtists(html)
+	}
+
 	pdk.Log(pdk.LogDebug, fmt.Sprintf("parsed page result: bio=%d chars, image=%v, similar=%d",
 		len(page.Biography), page.ImageURL != "", len(page.SimilarArtists)))
 
@@ -683,22 +690,18 @@ func (a *appleMusicAgent) GetArtistBiography(input metadata.ArtistRequest) (*met
 	}
 	artistID, err := resolveArtistID(input.Name)
 	if err != nil {
-		pdk.Log(pdk.LogWarn, "GetArtistBiography: resolve failed: "+err.Error())
 		return nil, err
 	}
 
 	page, err := fetchArtistPage(artistID, fieldBiography)
 	if err != nil {
-		pdk.Log(pdk.LogWarn, "GetArtistBiography: fetchArtistPage failed: "+err.Error())
 		return nil, err
 	}
 
 	if page.Biography == "" {
-		pdk.Log(pdk.LogDebug, "GetArtistBiography: no biography found in any country page")
 		return nil, errors.New("no biography found")
 	}
 
-	pdk.Log(pdk.LogDebug, fmt.Sprintf("GetArtistBiography: returning biography (%d chars)", len(page.Biography)))
 	return &metadata.ArtistBiographyResponse{Biography: page.Biography}, nil
 }
 
@@ -731,21 +734,17 @@ func (a *appleMusicAgent) GetSimilarArtists(input metadata.SimilarArtistsRequest
 	}
 	artistID, err := resolveArtistID(input.Name)
 	if err != nil {
-		pdk.Log(pdk.LogWarn, "GetSimilarArtists: resolve failed: "+err.Error())
 		return nil, err
 	}
 
 	page, err := fetchArtistPage(artistID, fieldSimilar)
 	if err != nil {
-		pdk.Log(pdk.LogWarn, "GetSimilarArtists: fetchArtistPage failed: "+err.Error())
 		return nil, err
 	}
 
 	if len(page.SimilarArtists) == 0 {
-		pdk.Log(pdk.LogDebug, "GetSimilarArtists: no similar artists found in any country page")
 		return nil, errors.New("no similar artists found")
 	}
-	pdk.Log(pdk.LogDebug, fmt.Sprintf("GetSimilarArtists: found %d similar artists", len(page.SimilarArtists)))
 
 	limit := clampLimit(int(input.Limit), len(page.SimilarArtists))
 
