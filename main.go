@@ -14,15 +14,15 @@ import (
 )
 
 const (
-	userAgent         = "NavidromeAppleMusicPlugin/0.1"
-	defaultCountry    = "us"
-	defaultCacheTTL   = 7 // days
-	defaultTopSongs   = 10
-	httpTimeoutMs              = 10000
-	negativeCacheTTLSeconds    = 7200 // 2 hours
-	iTunesSearchURL   = "https://itunes.apple.com/search"
-	iTunesLookupURL   = "https://itunes.apple.com/lookup"
-	appleMusicBaseURL = "https://music.apple.com"
+	userAgent               = "NavidromeAppleMusicPlugin/0.1"
+	defaultCountry          = "us"
+	defaultCacheTTL         = 7 // days
+	defaultTopSongs         = 10
+	httpTimeoutMs           = 10000
+	negativeCacheTTLSeconds = 7200 // 2 hours
+	iTunesSearchURL         = "https://itunes.apple.com/search"
+	iTunesLookupURL         = "https://itunes.apple.com/lookup"
+	appleMusicBaseURL       = "https://music.apple.com"
 
 	// HTML parsing limits
 	similarSectionMaxBytes = 60000 // generous chunk after section marker to cover all artist lockups
@@ -36,6 +36,7 @@ const (
 	configArtistImages    = "enable_artist_images"
 	configSimilarArtists  = "enable_similar_artists"
 	configTopSongs        = "enable_top_songs"
+	configAlbumImages     = "enable_album_images"
 )
 
 // Compile-time interface assertions
@@ -45,6 +46,7 @@ var (
 	_ metadata.ArtistImagesProvider    = (*appleMusicAgent)(nil)
 	_ metadata.SimilarArtistsProvider  = (*appleMusicAgent)(nil)
 	_ metadata.ArtistTopSongsProvider  = (*appleMusicAgent)(nil)
+	_ metadata.AlbumImagesProvider     = (*appleMusicAgent)(nil)
 )
 
 func init() {
@@ -817,4 +819,28 @@ func (a *appleMusicAgent) GetArtistTopSongs(input metadata.TopSongsRequest) (*me
 	}
 
 	return result, nil
+}
+
+// GetAlbumImages returns album artwork from Apple Music in multiple sizes.
+func (a *appleMusicAgent) GetAlbumImages(input metadata.AlbumRequest) (*metadata.AlbumImagesResponse, error) {
+	if !isEnabled(configAlbumImages) {
+		return nil, nil
+	}
+
+	artworkURL, err := resolveAlbumArtwork(input.Name, input.Artist)
+	if err != nil {
+		return nil, err
+	}
+
+	// Generate multiple sizes from the base artwork URL
+	sizes := []int{1000, 600, 300}
+	images := make([]metadata.ImageInfo, 0, len(sizes))
+	for _, size := range sizes {
+		images = append(images, metadata.ImageInfo{
+			URL:  rewriteImageSize(artworkURL, size),
+			Size: int32(size),
+		})
+	}
+
+	return &metadata.AlbumImagesResponse{Images: images}, nil
 }

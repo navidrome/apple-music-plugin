@@ -48,6 +48,7 @@ var _ = Describe("appleMusicAgent", func() {
 		host.ConfigMock.On("Get", configArtistImages).Return("", false).Maybe()
 		host.ConfigMock.On("Get", configSimilarArtists).Return("", false).Maybe()
 		host.ConfigMock.On("Get", configTopSongs).Return("", false).Maybe()
+		host.ConfigMock.On("Get", configAlbumImages).Return("", false).Maybe()
 	})
 
 	Describe("getCountries", func() {
@@ -776,6 +777,43 @@ var _ = Describe("appleMusicAgent", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(resp.Songs).To(HaveLen(1))
 			Expect(resp.Songs[0].Name).To(Equal("Cached Song"))
+		})
+	})
+
+	Describe("GetAlbumImages", func() {
+		var agent appleMusicAgent
+
+		It("returns album images in multiple sizes", func() {
+			data := mustMarshal(cachedAlbumArtwork{ArtworkURL: "https://is1-ssl.mzstatic.com/image/thumb/Music116/100x100bb.jpg"})
+			host.KVStoreMock.On("Get", "album:taylor swift:1989").Return(data, true, nil)
+
+			resp, err := agent.GetAlbumImages(metadata.AlbumRequest{Name: "1989", Artist: "Taylor Swift"})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp.Images).To(HaveLen(3))
+			Expect(resp.Images[0].Size).To(Equal(int32(1000)))
+			Expect(resp.Images[0].URL).To(ContainSubstring("1000x1000bb"))
+			Expect(resp.Images[1].Size).To(Equal(int32(600)))
+			Expect(resp.Images[1].URL).To(ContainSubstring("600x600bb"))
+			Expect(resp.Images[2].Size).To(Equal(int32(300)))
+			Expect(resp.Images[2].URL).To(ContainSubstring("300x300bb"))
+		})
+
+		It("returns error when album not found", func() {
+			data := mustMarshal(cachedAlbumArtwork{ArtworkURL: ""})
+			host.KVStoreMock.On("Get", "album:taylor swift:unknown").Return(data, true, nil)
+
+			_, err := agent.GetAlbumImages(metadata.AlbumRequest{Name: "Unknown", Artist: "Taylor Swift"})
+			Expect(err).To(HaveOccurred())
+		})
+
+		It("returns nil when disabled", func() {
+			host.ConfigMock.ExpectedCalls = nil
+			host.ConfigMock.Calls = nil
+			host.ConfigMock.On("Get", configAlbumImages).Return("false", true)
+
+			resp, err := agent.GetAlbumImages(metadata.AlbumRequest{Name: "1989", Artist: "Taylor Swift"})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp).To(BeNil())
 		})
 	})
 })

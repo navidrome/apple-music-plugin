@@ -45,6 +45,11 @@
           "type": "boolean",
           "title": "Top Songs",
           "default": true
+        },
+        "enable_album_images": {
+          "type": "boolean",
+          "title": "Album Images",
+          "default": true
         }
       }
     },
@@ -103,8 +108,8 @@
               "scope": "#/properties/enable_top_songs"
             },
             {
-              "type": "Label",
-              "text": ""
+              "type": "Control",
+              "scope": "#/properties/enable_album_images"
             }
           ]
         }
