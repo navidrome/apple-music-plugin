@@ -333,6 +333,77 @@ func findBestAlbumMatch(albumName, artistName string, results []itunesAlbumResul
 	return nil
 }
 
+// resolveAlbumArtwork looks up album artwork URL from the iTunes Search API.
+// Uses KVStore cache with TTL. Caches "not found" with a shorter negative TTL.
+func resolveAlbumArtwork(albumName, artistName string) (string, error) {
+	normalizedAlbum := normalizeArtistName(albumName)
+	normalizedArtist := normalizeArtistName(artistName)
+	if normalizedAlbum == "" {
+		return "", errors.New("empty album name")
+	}
+	if normalizedArtist == "" {
+		return "", errors.New("empty artist name")
+	}
+
+	// Check cache
+	cacheKey := fmt.Sprintf("album:%s:%s", normalizedArtist, normalizedAlbum)
+	var cached cachedAlbumArtwork
+	if kvGet(cacheKey, &cached) {
+		if cached.ArtworkURL == "" {
+			pdk.Log(pdk.LogDebug, "album artwork negative cache hit: "+cacheKey)
+			return "", errors.New("no matching album found")
+		}
+		pdk.Log(pdk.LogDebug, "album artwork cache hit: "+cacheKey)
+		return cached.ArtworkURL, nil
+	}
+
+	// Search iTunes API
+	countries := getCountries()
+	country := countries[0]
+
+	searchURL := fmt.Sprintf("%s?term=%s&entity=album&limit=10&country=%s",
+		iTunesSearchURL, url.QueryEscape(artistName+" "+albumName), url.QueryEscape(country))
+
+	pdk.Log(pdk.LogDebug, "searching iTunes API for album: "+searchURL)
+
+	body, statusCode, err := httpGet(searchURL)
+	if err != nil {
+		return "", fmt.Errorf("iTunes album search failed: %w", err)
+	}
+	if statusCode != 200 {
+		return "", fmt.Errorf("iTunes album search returned status %d", statusCode)
+	}
+
+	var searchResp itunesAlbumSearchResponse
+	if err := json.Unmarshal(body, &searchResp); err != nil {
+		return "", fmt.Errorf("failed to parse iTunes album response: %w", err)
+	}
+
+	// Find exact match by album name + artist name
+	bestMatch := findBestAlbumMatch(albumName, artistName, searchResp.Results)
+	if bestMatch == nil {
+		// Cache negative result with short TTL
+		if err := kvSetWithTTL(cacheKey, cachedAlbumArtwork{ArtworkURL: ""}, negativeCacheTTLSeconds); err != nil {
+			pdk.Log(pdk.LogWarn, "failed to cache negative album result: "+err.Error())
+		}
+		return "", errors.New("no matching album found")
+	}
+
+	artworkURL := bestMatch.ArtworkURL100
+	if artworkURL == "" {
+		return "", errors.New("album match has no artwork")
+	}
+
+	// Cache with standard TTL
+	ttl := getCacheTTLSeconds()
+	if err := kvSetWithTTL(cacheKey, cachedAlbumArtwork{ArtworkURL: artworkURL}, ttl); err != nil {
+		pdk.Log(pdk.LogWarn, "failed to cache album artwork: "+err.Error())
+	}
+
+	pdk.Log(pdk.LogInfo, fmt.Sprintf("resolved album '%s' by '%s' → artwork URL", albumName, artistName))
+	return artworkURL, nil
+}
+
 // --- HTML parsing helpers ---
 
 // jsonLDRegex matches a <script> tag containing type="application/ld+json", regardless of

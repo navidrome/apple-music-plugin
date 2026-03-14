@@ -381,6 +381,94 @@ var _ = Describe("appleMusicAgent", func() {
 		})
 	})
 
+	Describe("resolveAlbumArtwork", func() {
+		It("returns cached artwork URL", func() {
+			data := mustMarshal(cachedAlbumArtwork{ArtworkURL: "https://cached.jpg"})
+			host.KVStoreMock.On("Get", "album:taylor swift:1989").Return(data, true, nil)
+
+			url, err := resolveAlbumArtwork("1989", "Taylor Swift")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(url).To(Equal("https://cached.jpg"))
+		})
+
+		It("returns error on negative cache hit", func() {
+			data := mustMarshal(cachedAlbumArtwork{ArtworkURL: ""})
+			host.KVStoreMock.On("Get", "album:taylor swift:1989").Return(data, true, nil)
+
+			_, err := resolveAlbumArtwork("1989", "Taylor Swift")
+			Expect(err).To(MatchError("no matching album found"))
+		})
+
+		It("searches iTunes API on cache miss", func() {
+			host.KVStoreMock.On("Get", "album:taylor swift:1989").Return([]byte(nil), false, nil)
+			host.ConfigMock.On("Get", configCountries).Return("us", true)
+			host.ConfigMock.On("GetInt", configCacheTTLDays).Return(int64(7), true)
+
+			searchResp := itunesAlbumSearchResponse{
+				ResultCount: 1,
+				Results: []itunesAlbumResult{
+					{WrapperType: "collection", CollectionName: "1989", ArtistName: "Taylor Swift", ArtworkURL100: "https://is1-ssl.mzstatic.com/image/thumb/Music/100x100bb.jpg"},
+				},
+			}
+			respBody := mustMarshal(searchResp)
+			host.HTTPMock.On("Send", mock.MatchedBy(func(req host.HTTPRequest) bool {
+				return req.Method == "GET" && strings.Contains(req.URL, "entity=album")
+			})).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
+
+			host.KVStoreMock.On("SetWithTTL", "album:taylor swift:1989", mock.Anything, int64(7*24*60*60)).Return(nil)
+
+			url, err := resolveAlbumArtwork("1989", "Taylor Swift")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(url).To(Equal("https://is1-ssl.mzstatic.com/image/thumb/Music/100x100bb.jpg"))
+		})
+
+		It("caches negative result when no album matches", func() {
+			host.KVStoreMock.On("Get", "album:taylor swift:unknown album").Return([]byte(nil), false, nil)
+			host.ConfigMock.On("Get", configCountries).Return("us", true)
+
+			searchResp := itunesAlbumSearchResponse{
+				ResultCount: 1,
+				Results: []itunesAlbumResult{
+					{WrapperType: "collection", CollectionName: "Different Album", ArtistName: "Taylor Swift", ArtworkURL100: "https://img.jpg"},
+				},
+			}
+			respBody := mustMarshal(searchResp)
+			host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
+
+			negativeCacheData := mustMarshal(cachedAlbumArtwork{ArtworkURL: ""})
+			host.KVStoreMock.On("SetWithTTL", "album:taylor swift:unknown album", negativeCacheData, int64(negativeCacheTTLSeconds)).Return(nil)
+
+			_, err := resolveAlbumArtwork("Unknown Album", "Taylor Swift")
+			Expect(err).To(MatchError("no matching album found"))
+			host.KVStoreMock.AssertCalled(GinkgoT(), "SetWithTTL", "album:taylor swift:unknown album", negativeCacheData, int64(negativeCacheTTLSeconds))
+		})
+
+		It("caches negative result when zero results returned", func() {
+			host.KVStoreMock.On("Get", "album:taylor swift:nope").Return([]byte(nil), false, nil)
+			host.ConfigMock.On("Get", configCountries).Return("us", true)
+
+			searchResp := itunesAlbumSearchResponse{ResultCount: 0, Results: nil}
+			respBody := mustMarshal(searchResp)
+			host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
+
+			negativeCacheData := mustMarshal(cachedAlbumArtwork{ArtworkURL: ""})
+			host.KVStoreMock.On("SetWithTTL", "album:taylor swift:nope", negativeCacheData, int64(negativeCacheTTLSeconds)).Return(nil)
+
+			_, err := resolveAlbumArtwork("Nope", "Taylor Swift")
+			Expect(err).To(MatchError("no matching album found"))
+		})
+
+		It("returns error on empty album name", func() {
+			_, err := resolveAlbumArtwork("", "Taylor Swift")
+			Expect(err).To(MatchError("empty album name"))
+		})
+
+		It("returns error on empty artist name", func() {
+			_, err := resolveAlbumArtwork("1989", "")
+			Expect(err).To(MatchError("empty artist name"))
+		})
+	})
+
 	Describe("parseJSONLD", func() {
 		It("extracts JSON-LD data from HTML", func() {
 			html := `<html><head><script type="application/ld+json">{"@type":"MusicGroup","name":"Taylor Swift","description":"A bio","image":"https://example.com/img.jpg"}</script></head></html>`
