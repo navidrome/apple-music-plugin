@@ -7,6 +7,7 @@ TINYGO := $(shell command -v tinygo 2> /dev/null)
 
 test:
 	go test -race ./...
+.PHONY: test
 
 build:
 ifdef TINYGO
@@ -14,12 +15,15 @@ ifdef TINYGO
 else
 	GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -o $(WASM_FILE) .
 endif
+.PHONY: build
 
 package: build
 	zip $(PLUGIN_NAME).ndp $(WASM_FILE) manifest.json
+.PHONY: package
 
 clean:
 	rm -f $(WASM_FILE) $(PLUGIN_NAME).ndp
+.PHONY: clean
 
 release:
 	@if [[ ! "$${V}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$$ ]]; then echo "Usage: make release V=X.X.X [PRE=true]"; exit 1; fi
