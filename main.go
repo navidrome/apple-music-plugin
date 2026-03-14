@@ -412,3 +412,101 @@ func parseSimilarArtists(html string) []similarArtistInfo {
 
 	return artists
 }
+
+// --- Web page fetching ---
+
+// fetchArtistPage fetches and parses the Apple Music artist page.
+// Tries each country code in order until content is found.
+// The `wantField` parameter indicates which field must be non-empty:
+// "biography", "image", "similar", or "" for any content.
+func fetchArtistPage(artistID int64, wantField string) (*parsedPageData, error) {
+	countries := getCountries()
+	ttl := getCacheTTLSeconds()
+	var firstResult *parsedPageData
+
+	for _, country := range countries {
+		cacheKey := fmt.Sprintf("page:%d:%s", artistID, country)
+
+		// Check cache
+		if cached, ok := kvGetPageData(cacheKey); ok {
+			pdk.Log(pdk.LogDebug, fmt.Sprintf("page cache hit: %s", cacheKey))
+			if firstResult == nil {
+				firstResult = cached
+			}
+			if hasField(cached, wantField) {
+				return cached, nil
+			}
+			continue
+		}
+
+		// Fetch page
+		pageURL := fmt.Sprintf("%s/%s/artist/-/%d", appleMusicBaseURL, country, artistID)
+		pdk.Log(pdk.LogDebug, "fetching Apple Music page: "+pageURL)
+
+		body, statusCode, err := httpGet(pageURL)
+		if err != nil {
+			pdk.Log(pdk.LogWarn, fmt.Sprintf("failed to fetch page for country %s: %s", country, err.Error()))
+			continue
+		}
+		if statusCode != 200 {
+			pdk.Log(pdk.LogWarn, fmt.Sprintf("Apple Music page returned %d for country %s", statusCode, country))
+			continue
+		}
+
+		html := string(body)
+		page := parsePage(html)
+
+		// Cache the result
+		if err := kvSetWithTTL(cacheKey, page, ttl); err != nil {
+			pdk.Log(pdk.LogWarn, "failed to cache page data: "+err.Error())
+		}
+
+		if firstResult == nil {
+			firstResult = page
+		}
+		if hasField(page, wantField) {
+			return page, nil
+		}
+	}
+
+	if firstResult != nil {
+		return firstResult, nil
+	}
+	return nil, errors.New("no page data found for any country")
+}
+
+// parsePage extracts all metadata from an Apple Music artist HTML page.
+func parsePage(html string) *parsedPageData {
+	page := &parsedPageData{}
+
+	// Parse JSON-LD for biography and image
+	ld, err := parseJSONLD(html)
+	if err == nil {
+		page.Biography = ld.Description
+		page.ImageURL = ld.Image
+	}
+
+	// Fallback to OpenGraph for image
+	if page.ImageURL == "" {
+		page.ImageURL = parseOpenGraphImage(html)
+	}
+
+	// Parse similar artists
+	page.SimilarArtists = parseSimilarArtists(html)
+
+	return page
+}
+
+// hasField checks if the parsed page has the requested field populated.
+func hasField(page *parsedPageData, field string) bool {
+	switch field {
+	case "biography":
+		return page.Biography != ""
+	case "image":
+		return page.ImageURL != ""
+	case "similar":
+		return len(page.SimilarArtists) > 0
+	default:
+		return page.Biography != "" || page.ImageURL != "" || len(page.SimilarArtists) > 0
+	}
+}
