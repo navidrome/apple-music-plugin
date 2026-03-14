@@ -202,10 +202,6 @@ var _ = Describe("appleMusicAgent", func() {
 	})
 
 	Describe("resolveArtistID", func() {
-		BeforeEach(func() {
-			pdk.PDKMock.On("Log", mock.Anything, mock.Anything).Maybe()
-		})
-
 		It("returns cached artist ID", func() {
 			data := mustMarshal(cachedArtistID{ArtistID: taylorSwiftID})
 			host.KVStoreMock.On("Get", "artist:taylor swift").Return(data, true, nil)
@@ -378,10 +374,6 @@ var _ = Describe("appleMusicAgent", func() {
 	})
 
 	Describe("fetchArtistPage", func() {
-		BeforeEach(func() {
-			pdk.PDKMock.On("Log", mock.Anything, mock.Anything).Maybe()
-		})
-
 		It("returns cached page data", func() {
 			host.ConfigMock.On("Get", "countries").Return("us", true)
 			host.ConfigMock.On("GetInt", "cache_ttl_days").Return(int64(7), true)
