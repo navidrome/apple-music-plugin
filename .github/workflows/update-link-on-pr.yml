@@ -1,0 +1,38 @@
+name: Add download link to PR
+
+on:
+    workflow_run:
+        workflows: ["Build"]
+        types: [completed]
+
+jobs:
+    pr_comment:
+        if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
+        runs-on: ubuntu-latest
+        permissions:
+            pull-requests: write
+        steps:
+            - name: Get PR number
+              id: pr
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const pulls = await github.rest.pulls.list({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        state: 'open'
+                      });
+                      const pr = pulls.data.find(p => p.head.sha === '${{ github.event.workflow_run.head_sha }}');
+                      if (pr) {
+                        core.setOutput('number', pr.number);
+                      }
+
+            - name: Add download link comment
+              if: steps.pr.outputs.number
+              uses: marocchino/sticky-pull-request-comment@v2
+              with:
+                  number: ${{ steps.pr.outputs.number }}
+                  message: |
+                      Download the plugin for this PR: [apple-music.zip](https://nightly.link/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/apple-music.zip)
+
+                      Built from ${{ github.event.workflow_run.head_sha }} on ${{ github.event.workflow_run.updated_at }}

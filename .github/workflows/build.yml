@@ -1,0 +1,54 @@
+name: Build
+
+on:
+    pull_request:
+        branches:
+            - main
+    push:
+        branches:
+            - main
+
+jobs:
+    build:
+        name: Build
+        runs-on: ubuntu-latest
+        steps:
+            - name: Check out code
+              uses: actions/checkout@v5
+
+            - name: Set up Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version-file: go.mod
+
+            - name: Install TinyGo
+              run: |
+                  wget https://github.com/tinygo-org/tinygo/releases/download/v0.40.1/tinygo_0.40.1_amd64.deb
+                  sudo dpkg -i tinygo_0.40.1_amd64.deb
+                  sudo apt install -y binaryen
+
+            - name: Run tests
+              run: make test
+
+            - name: Append PR info to version
+              if: github.event_name == 'pull_request'
+              run: |
+                  PR_NUM=${{ github.event.pull_request.number }}
+                  SHA=$(echo "${{ github.event.pull_request.head.sha }}" | cut -c1-7)
+                  SUFFIX="PR${PR_NUM}-${SHA}"
+                  jq --arg suffix "$SUFFIX" '.version = .version + "-" + $suffix' manifest.json > manifest.tmp && mv manifest.tmp manifest.json
+
+            - name: Append git SHA to version
+              if: github.event_name == 'push'
+              run: |
+                  SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+                  jq --arg sha "$SHA" '.version = .version + "-" + $sha' manifest.json > manifest.tmp && mv manifest.tmp manifest.json
+
+            - name: Build and package plugin
+              run: make package
+
+            - name: Upload artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: apple-music
+                  path: apple-music.ndp

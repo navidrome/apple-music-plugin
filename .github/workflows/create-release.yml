@@ -1,0 +1,88 @@
+name: Create Release
+
+on:
+    workflow_dispatch:
+        inputs:
+            version:
+                description: "Release version (e.g., 1.2.3, without the 'v' prefix)"
+                required: true
+                type: string
+            prerelease:
+                description: "Mark this as a pre-release"
+                required: false
+                type: boolean
+                default: false
+
+permissions:
+    contents: write
+
+jobs:
+    create-release:
+        name: Create Release
+        runs-on: ubuntu-latest
+        steps:
+            - name: Validate version format
+              env:
+                  VERSION: ${{ inputs.version }}
+              run: |
+                  if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                    echo "::error::Invalid version format '$VERSION'. Use X.X.X (e.g., 1.2.3)"
+                    exit 1
+                  fi
+
+            - name: Compute full version
+              run: |
+                  VERSION="${{ inputs.version }}"
+                  if [[ "${{ inputs.prerelease }}" == "true" ]]; then
+                    VERSION="${VERSION}-prerelease"
+                  fi
+                  echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+            - name: Check out code
+              uses: actions/checkout@v5
+
+            - name: Check tag does not already exist
+              run: |
+                  if git ls-remote --tags origin "refs/tags/v${VERSION}" | grep -q .; then
+                    echo "::error::Tag v${VERSION} already exists"
+                    exit 1
+                  fi
+
+            - name: Set up Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version-file: go.mod
+
+            - name: Run tests
+              run: go test -race ./...
+
+            - name: Update manifest.json version
+              run: |
+                  jq --arg v "$VERSION" '.version = $v' manifest.json > manifest.tmp && mv manifest.tmp manifest.json
+
+            - name: Commit, tag, and push
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  git add manifest.json
+                  git commit --allow-empty -m "Release v${VERSION}"
+                  git tag "v${VERSION}"
+                  git push origin main "v${VERSION}"
+
+            - name: Install TinyGo
+              run: |
+                  wget https://github.com/tinygo-org/tinygo/releases/download/v0.40.1/tinygo_0.40.1_amd64.deb
+                  sudo dpkg -i tinygo_0.40.1_amd64.deb
+                  sudo apt install -y binaryen
+
+            - name: Build and package plugin
+              run: make package
+
+            - name: Create release
+              uses: softprops/action-gh-release@v2
+              with:
+                  tag_name: v${{ env.VERSION }}
+                  draft: true
+                  prerelease: ${{ inputs.prerelease }}
+                  files: apple-music.ndp
+                  generate_release_notes: true
