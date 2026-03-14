@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/navidrome/navidrome/plugins/pdk/go/host"
+	"github.com/navidrome/navidrome/plugins/pdk/go/metadata"
 	"github.com/navidrome/navidrome/plugins/pdk/go/pdk"
 	"github.com/stretchr/testify/mock"
 
@@ -371,6 +372,172 @@ var _ = Describe("appleMusicAgent", func() {
 			result, err := fetchArtistPage(12345, "biography")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result.Biography).To(Equal("English bio"))
+		})
+	})
+
+	Describe("GetArtistURL", func() {
+		var agent appleMusicAgent
+
+		BeforeEach(func() {
+			pdk.PDKMock.On("Log", mock.Anything, mock.Anything).Maybe()
+			// Pre-cache artist ID to skip iTunes search
+			data, _ := json.Marshal(cachedArtistID{ArtistID: 159260351})
+			host.KVStoreMock.On("Get", "artist:taylor swift").Return(data, true, nil)
+			host.ConfigMock.On("Get", "countries").Return("us", true)
+		})
+
+		It("returns Apple Music URL", func() {
+			resp, err := agent.GetArtistURL(metadata.ArtistRequest{Name: "Taylor Swift"})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp.URL).To(Equal("https://music.apple.com/us/artist/-/159260351"))
+		})
+	})
+
+	Describe("GetArtistBiography", func() {
+		var agent appleMusicAgent
+
+		BeforeEach(func() {
+			pdk.PDKMock.On("Log", mock.Anything, mock.Anything).Maybe()
+			data, _ := json.Marshal(cachedArtistID{ArtistID: 159260351})
+			host.KVStoreMock.On("Get", "artist:taylor swift").Return(data, true, nil)
+			host.ConfigMock.On("Get", "countries").Return("us", true)
+			host.ConfigMock.On("GetInt", "cache_ttl_days").Return(int64(7), true)
+		})
+
+		It("returns biography from cached page", func() {
+			pageData := parsedPageData{Biography: "Taylor Swift biography"}
+			pageBytes, _ := json.Marshal(pageData)
+			host.KVStoreMock.On("Get", "page:159260351:us").Return(pageBytes, true, nil)
+
+			resp, err := agent.GetArtistBiography(metadata.ArtistRequest{Name: "Taylor Swift"})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp.Biography).To(Equal("Taylor Swift biography"))
+		})
+
+		It("returns error when no biography found", func() {
+			pageData := parsedPageData{ImageURL: "https://img.com/img.jpg"}
+			pageBytes, _ := json.Marshal(pageData)
+			host.KVStoreMock.On("Get", "page:159260351:us").Return(pageBytes, true, nil)
+
+			_, err := agent.GetArtistBiography(metadata.ArtistRequest{Name: "Taylor Swift"})
+			Expect(err).To(MatchError("no biography found"))
+		})
+	})
+
+	Describe("GetArtistImages", func() {
+		var agent appleMusicAgent
+
+		BeforeEach(func() {
+			pdk.PDKMock.On("Log", mock.Anything, mock.Anything).Maybe()
+			data, _ := json.Marshal(cachedArtistID{ArtistID: 159260351})
+			host.KVStoreMock.On("Get", "artist:taylor swift").Return(data, true, nil)
+			host.ConfigMock.On("Get", "countries").Return("us", true)
+			host.ConfigMock.On("GetInt", "cache_ttl_days").Return(int64(7), true)
+		})
+
+		It("returns images in multiple sizes", func() {
+			pageData := parsedPageData{ImageURL: "https://is1-ssl.mzstatic.com/image/thumb/Music116/486x486bb.jpg"}
+			pageBytes, _ := json.Marshal(pageData)
+			host.KVStoreMock.On("Get", "page:159260351:us").Return(pageBytes, true, nil)
+
+			resp, err := agent.GetArtistImages(metadata.ArtistRequest{Name: "Taylor Swift"})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp.Images).To(HaveLen(3))
+			Expect(resp.Images[0].Size).To(Equal(int32(1000)))
+			Expect(resp.Images[0].URL).To(ContainSubstring("1000x1000bb"))
+			Expect(resp.Images[1].Size).To(Equal(int32(600)))
+			Expect(resp.Images[2].Size).To(Equal(int32(300)))
+		})
+
+		It("returns error when no image found", func() {
+			pageData := parsedPageData{Biography: "A bio"}
+			pageBytes, _ := json.Marshal(pageData)
+			host.KVStoreMock.On("Get", "page:159260351:us").Return(pageBytes, true, nil)
+
+			_, err := agent.GetArtistImages(metadata.ArtistRequest{Name: "Taylor Swift"})
+			Expect(err).To(MatchError("no artist image found"))
+		})
+	})
+
+	Describe("GetSimilarArtists", func() {
+		var agent appleMusicAgent
+
+		BeforeEach(func() {
+			pdk.PDKMock.On("Log", mock.Anything, mock.Anything).Maybe()
+			data, _ := json.Marshal(cachedArtistID{ArtistID: 159260351})
+			host.KVStoreMock.On("Get", "artist:taylor swift").Return(data, true, nil)
+			host.ConfigMock.On("Get", "countries").Return("us", true)
+			host.ConfigMock.On("GetInt", "cache_ttl_days").Return(int64(7), true)
+		})
+
+		It("returns similar artists", func() {
+			pageData := parsedPageData{SimilarArtists: []similarArtistInfo{{Name: "Ed Sheeran"}, {Name: "Adele"}, {Name: "Lorde"}}}
+			pageBytes, _ := json.Marshal(pageData)
+			host.KVStoreMock.On("Get", "page:159260351:us").Return(pageBytes, true, nil)
+
+			resp, err := agent.GetSimilarArtists(metadata.SimilarArtistsRequest{Name: "Taylor Swift", Limit: 2})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp.Artists).To(HaveLen(2))
+			Expect(resp.Artists[0].Name).To(Equal("Ed Sheeran"))
+			Expect(resp.Artists[1].Name).To(Equal("Adele"))
+		})
+
+		It("returns all when limit is 0", func() {
+			pageData := parsedPageData{SimilarArtists: []similarArtistInfo{{Name: "A"}, {Name: "B"}}}
+			pageBytes, _ := json.Marshal(pageData)
+			host.KVStoreMock.On("Get", "page:159260351:us").Return(pageBytes, true, nil)
+
+			resp, err := agent.GetSimilarArtists(metadata.SimilarArtistsRequest{Name: "Taylor Swift", Limit: 0})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp.Artists).To(HaveLen(2))
+		})
+	})
+
+	Describe("GetArtistTopSongs", func() {
+		var agent appleMusicAgent
+
+		BeforeEach(func() {
+			pdk.PDKMock.On("Log", mock.Anything, mock.Anything).Maybe()
+			data, _ := json.Marshal(cachedArtistID{ArtistID: 159260351})
+			host.KVStoreMock.On("Get", "artist:taylor swift").Return(data, true, nil)
+			host.ConfigMock.On("Get", "countries").Return("us", true)
+			host.ConfigMock.On("GetInt", "cache_ttl_days").Return(int64(7), true)
+		})
+
+		It("returns top songs from iTunes Lookup API", func() {
+			host.KVStoreMock.On("Get", "topsongs:159260351:5").Return([]byte(nil), false, nil)
+
+			lookupResp := itunesLookupResponse{
+				ResultCount: 3,
+				Results: []itunesLookupResult{
+					{WrapperType: "artist", ArtistName: "Taylor Swift", ArtistID: 159260351},
+					{WrapperType: "track", TrackName: "Anti-Hero", ArtistName: "Taylor Swift"},
+					{WrapperType: "track", TrackName: "Shake It Off", ArtistName: "Taylor Swift"},
+				},
+			}
+			respBody, _ := json.Marshal(lookupResp)
+			host.HTTPMock.On("Send", mock.MatchedBy(func(req host.HTTPRequest) bool {
+				return strings.Contains(req.URL, "itunes.apple.com/lookup")
+			})).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
+
+			host.KVStoreMock.On("SetWithTTL", "topsongs:159260351:5", mock.Anything, mock.Anything).Return(nil)
+
+			resp, err := agent.GetArtistTopSongs(metadata.TopSongsRequest{Name: "Taylor Swift", Count: 5})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp.Songs).To(HaveLen(2))
+			Expect(resp.Songs[0].Name).To(Equal("Anti-Hero"))
+			Expect(resp.Songs[1].Name).To(Equal("Shake It Off"))
+		})
+
+		It("returns cached top songs", func() {
+			cached := metadata.TopSongsResponse{Songs: []metadata.SongRef{{Name: "Cached Song", Artist: "Taylor Swift"}}}
+			cachedBytes, _ := json.Marshal(cached)
+			host.KVStoreMock.On("Get", "topsongs:159260351:10").Return(cachedBytes, true, nil)
+
+			resp, err := agent.GetArtistTopSongs(metadata.TopSongsRequest{Name: "Taylor Swift"})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp.Songs).To(HaveLen(1))
+			Expect(resp.Songs[0].Name).To(Equal("Cached Song"))
 		})
 	})
 })
