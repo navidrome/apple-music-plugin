@@ -393,6 +393,9 @@ func resolveAlbumArtwork(albumName, artistName string) (string, error) {
 
 	artworkURL := bestMatch.ArtworkURL100
 	if artworkURL == "" {
+		if err := kvSetWithTTL(cacheKey, cachedAlbumArtwork{ArtworkURL: ""}, negativeCacheTTLSeconds); err != nil {
+			pdk.Log(pdk.LogWarn, "failed to cache negative album result: "+err.Error())
+		}
 		return "", errors.New("album match has no artwork")
 	}
 
@@ -459,6 +462,19 @@ var imageURLRegex = regexp.MustCompile(`/\d+x\d+[a-z]*\.`)
 // rewriteImageSize rewrites an Apple mzstatic.com image URL to the given size.
 func rewriteImageSize(imageURL string, size int) string {
 	return imageURLRegex.ReplaceAllString(imageURL, fmt.Sprintf("/%dx%dbb.", size, size))
+}
+
+// buildImageList generates ImageInfo entries in multiple sizes from a base artwork URL.
+func buildImageList(baseURL string) []metadata.ImageInfo {
+	sizes := []int{1000, 600, 300}
+	images := make([]metadata.ImageInfo, 0, len(sizes))
+	for _, size := range sizes {
+		images = append(images, metadata.ImageInfo{
+			URL:  rewriteImageSize(baseURL, size),
+			Size: int32(size),
+		})
+	}
+	return images
 }
 
 // similarSectionMarkers contains localized aria-label values for the "Similar Artists" section.
@@ -705,17 +721,7 @@ func (a *appleMusicAgent) GetArtistImages(input metadata.ArtistRequest) (*metada
 		return nil, errors.New("no artist image found")
 	}
 
-	// Generate multiple sizes from the base image URL
-	sizes := []int{1000, 600, 300}
-	images := make([]metadata.ImageInfo, 0, len(sizes))
-	for _, size := range sizes {
-		images = append(images, metadata.ImageInfo{
-			URL:  rewriteImageSize(page.ImageURL, size),
-			Size: int32(size),
-		})
-	}
-
-	return &metadata.ArtistImagesResponse{Images: images}, nil
+	return &metadata.ArtistImagesResponse{Images: buildImageList(page.ImageURL)}, nil
 }
 
 // GetSimilarArtists returns similar artists scraped from the Apple Music page.
@@ -832,15 +838,5 @@ func (a *appleMusicAgent) GetAlbumImages(input metadata.AlbumRequest) (*metadata
 		return nil, err
 	}
 
-	// Generate multiple sizes from the base artwork URL
-	sizes := []int{1000, 600, 300}
-	images := make([]metadata.ImageInfo, 0, len(sizes))
-	for _, size := range sizes {
-		images = append(images, metadata.ImageInfo{
-			URL:  rewriteImageSize(artworkURL, size),
-			Size: int32(size),
-		})
-	}
-
-	return &metadata.AlbumImagesResponse{Images: images}, nil
+	return &metadata.AlbumImagesResponse{Images: buildImageList(artworkURL)}, nil
 }
