@@ -17,10 +17,15 @@ const (
 	userAgent         = "NavidromeAppleMusicPlugin/0.1"
 	defaultCountry    = "us"
 	defaultCacheTTL   = 7 // days
+	defaultTopSongs   = 10
 	httpTimeoutMs     = 10000
 	iTunesSearchURL   = "https://itunes.apple.com/search"
 	iTunesLookupURL   = "https://itunes.apple.com/lookup"
 	appleMusicBaseURL = "https://music.apple.com"
+
+	// HTML parsing limits
+	similarSectionMaxBytes = 60000 // generous chunk after section marker to cover all artist lockups
+	sectionBoundaryOffset  = 100   // skip initial chars before searching for next section boundary
 )
 
 // Compile-time interface assertions
@@ -355,16 +360,12 @@ func parseSimilarArtists(html string) []similarArtistInfo {
 	}
 
 	// Extract a generous chunk after the section marker to cover all artist lockups.
-	// Each lockup is ~4-5KB, and sections typically have up to 10 artists.
-	sectionEnd := sectionStart + 60000
-	if sectionEnd > len(html) {
-		sectionEnd = len(html)
-	}
+	sectionEnd := min(sectionStart+similarSectionMaxBytes, len(html))
 	section := html[sectionStart:sectionEnd]
 
 	// Limit to the current section by finding the next section boundary.
-	if nextSection := strings.Index(section[100:], `data-testid="section-container"`); nextSection != -1 {
-		section = section[:100+nextSection]
+	if nextSection := strings.Index(section[sectionBoundaryOffset:], `data-testid="section-container"`); nextSection != -1 {
+		section = section[:sectionBoundaryOffset+nextSection]
 	}
 	pdk.Log(pdk.LogDebug, fmt.Sprintf("similar artists: extracting from section (%d chars)", len(section)))
 
@@ -616,7 +617,7 @@ func (a *appleMusicAgent) GetArtistTopSongs(input metadata.TopSongsRequest) (*me
 
 	count := int(input.Count)
 	if count <= 0 {
-		count = 10
+		count = defaultTopSongs
 	}
 
 	// Check cache
