@@ -231,6 +231,56 @@ var _ = Describe("appleMusicAgent", func() {
 		})
 	})
 
+	Describe("findBestAlbumMatch", func() {
+		It("returns exact match on album name and artist name", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "Other Album", ArtistName: "Taylor Swift", ArtworkURL100: "https://img1.jpg"},
+				{WrapperType: "collection", CollectionName: "1989", ArtistName: "Taylor Swift", ArtworkURL100: "https://img2.jpg"},
+			}
+			match := findBestAlbumMatch("1989", "Taylor Swift", results)
+			Expect(match).ToNot(BeNil())
+			Expect(match.ArtworkURL100).To(Equal("https://img2.jpg"))
+		})
+
+		It("matches case-insensitively", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "Midnights", ArtistName: "TAYLOR SWIFT", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("midnights", "taylor swift", results)
+			Expect(match).ToNot(BeNil())
+			Expect(match.CollectionName).To(Equal("Midnights"))
+		})
+
+		It("returns nil when album name matches but artist does not", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "1989", ArtistName: "Wrong Artist", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("1989", "Taylor Swift", results)
+			Expect(match).To(BeNil())
+		})
+
+		It("returns nil when artist matches but album does not", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "Wrong Album", ArtistName: "Taylor Swift", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("1989", "Taylor Swift", results)
+			Expect(match).To(BeNil())
+		})
+
+		It("skips non-collection results", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "artist", CollectionName: "1989", ArtistName: "Taylor Swift", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("1989", "Taylor Swift", results)
+			Expect(match).To(BeNil())
+		})
+
+		It("returns nil for empty results", func() {
+			match := findBestAlbumMatch("1989", "Taylor Swift", nil)
+			Expect(match).To(BeNil())
+		})
+	})
+
 	Describe("resolveArtistID", func() {
 		It("returns cached artist ID", func() {
 			data := mustMarshal(cachedArtistID{ArtistID: taylorSwiftID})

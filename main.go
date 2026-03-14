@@ -83,6 +83,18 @@ type itunesLookupResult struct {
 	ArtistID    int64  `json:"artistId"`
 }
 
+type itunesAlbumSearchResponse struct {
+	ResultCount int                 `json:"resultCount"`
+	Results     []itunesAlbumResult `json:"results"`
+}
+
+type itunesAlbumResult struct {
+	WrapperType    string `json:"wrapperType"`
+	CollectionName string `json:"collectionName"`
+	ArtistName     string `json:"artistName"`
+	ArtworkURL100  string `json:"artworkUrl100"`
+}
+
 // --- Scraped page data ---
 
 type parsedPageData struct {
@@ -99,6 +111,10 @@ type similarArtistInfo struct {
 
 type cachedArtistID struct {
 	ArtistID int64 `json:"artistId"`
+}
+
+type cachedAlbumArtwork struct {
+	ArtworkURL string `json:"artworkUrl"`
 }
 
 // --- JSON-LD structure ---
@@ -298,6 +314,23 @@ func findBestArtistMatch(query string, results []itunesArtistResult) *itunesArti
 		}
 	}
 	return firstArtist
+}
+
+// findBestAlbumMatch finds an album matching both name and artist from search results.
+// Returns nil if no exact match is found (case-insensitive).
+func findBestAlbumMatch(albumName, artistName string, results []itunesAlbumResult) *itunesAlbumResult {
+	normalizedAlbum := normalizeArtistName(albumName)
+	normalizedArtist := normalizeArtistName(artistName)
+	for i := range results {
+		if results[i].WrapperType != "collection" {
+			continue
+		}
+		if normalizeArtistName(results[i].CollectionName) == normalizedAlbum &&
+			normalizeArtistName(results[i].ArtistName) == normalizedArtist {
+			return &results[i]
+		}
+	}
+	return nil
 }
 
 // --- HTML parsing helpers ---
