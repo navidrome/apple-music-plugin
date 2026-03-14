@@ -84,24 +84,27 @@ var _ = Describe("appleMusicAgent", func() {
 		})
 	})
 
-	Describe("kvGetArtistID", func() {
-		It("returns cached artist ID", func() {
+	Describe("kvGet", func() {
+		It("returns cached value", func() {
 			data, _ := json.Marshal(cachedArtistID{ArtistID: 12345})
 			host.KVStoreMock.On("Get", "artist:test").Return(data, true, nil)
-			result, ok := kvGetArtistID("artist:test")
+			var result cachedArtistID
+			ok := kvGet("artist:test", &result)
 			Expect(ok).To(BeTrue())
 			Expect(result.ArtistID).To(Equal(int64(12345)))
 		})
 
 		It("returns false when key not found", func() {
 			host.KVStoreMock.On("Get", "artist:missing").Return([]byte(nil), false, nil)
-			_, ok := kvGetArtistID("artist:missing")
+			var result cachedArtistID
+			ok := kvGet("artist:missing", &result)
 			Expect(ok).To(BeFalse())
 		})
 
 		It("returns false on invalid JSON", func() {
 			host.KVStoreMock.On("Get", "artist:bad").Return([]byte("invalid"), true, nil)
-			_, ok := kvGetArtistID("artist:bad")
+			var result cachedArtistID
+			ok := kvGet("artist:bad", &result)
 			Expect(ok).To(BeFalse())
 		})
 	})

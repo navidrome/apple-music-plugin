@@ -128,46 +128,17 @@ func getCacheTTLSeconds() int64 {
 }
 
 // --- KVStore helpers ---
-// Note: We avoid generics since TinyGo's support is limited.
-// Instead, we use concrete unmarshal helpers for each cached type.
 
-// kvGetArtistID retrieves a cached artist ID from KVStore.
-func kvGetArtistID(key string) (*cachedArtistID, bool) {
+// kvGet retrieves and unmarshals a JSON value from KVStore.
+func kvGet(key string, target any) bool {
 	data, exists, err := host.KVStoreGet(key)
 	if err != nil || !exists {
-		return nil, false
+		return false
 	}
-	var val cachedArtistID
-	if err := json.Unmarshal(data, &val); err != nil {
-		return nil, false
+	if err := json.Unmarshal(data, target); err != nil {
+		return false
 	}
-	return &val, true
-}
-
-// kvGetPageData retrieves cached page data from KVStore.
-func kvGetPageData(key string) (*parsedPageData, bool) {
-	data, exists, err := host.KVStoreGet(key)
-	if err != nil || !exists {
-		return nil, false
-	}
-	var val parsedPageData
-	if err := json.Unmarshal(data, &val); err != nil {
-		return nil, false
-	}
-	return &val, true
-}
-
-// kvGetTopSongs retrieves cached top songs from KVStore.
-func kvGetTopSongs(key string) (*metadata.TopSongsResponse, bool) {
-	data, exists, err := host.KVStoreGet(key)
-	if err != nil || !exists {
-		return nil, false
-	}
-	var val metadata.TopSongsResponse
-	if err := json.Unmarshal(data, &val); err != nil {
-		return nil, false
-	}
-	return &val, true
+	return true
 }
 
 // kvSet stores a JSON value in KVStore with no TTL (permanent).
@@ -223,7 +194,8 @@ func resolveArtistID(artistName string) (int64, error) {
 
 	// Check cache
 	cacheKey := "artist:" + normalized
-	if cached, ok := kvGetArtistID(cacheKey); ok {
+	var cached cachedArtistID
+	if kvGet(cacheKey, &cached) {
 		pdk.Log(pdk.LogDebug, "artist ID cache hit: "+normalized)
 		return cached.ArtistID, nil
 	}
@@ -425,13 +397,14 @@ func fetchArtistPage(artistID int64, wantField string) (*parsedPageData, error) 
 		cacheKey := fmt.Sprintf("page:%d:%s", artistID, country)
 
 		// Check cache
-		if cached, ok := kvGetPageData(cacheKey); ok {
+		var cached parsedPageData
+		if kvGet(cacheKey, &cached) {
 			pdk.Log(pdk.LogDebug, fmt.Sprintf("page cache hit: %s", cacheKey))
 			if firstResult == nil {
-				firstResult = cached
+				firstResult = &cached
 			}
-			if hasField(cached, wantField) {
-				return cached, nil
+			if hasField(&cached, wantField) {
+				return &cached, nil
 			}
 			continue
 		}
@@ -640,9 +613,10 @@ func (a *appleMusicAgent) GetArtistTopSongs(input metadata.TopSongsRequest) (*me
 
 	// Check cache
 	cacheKey := fmt.Sprintf("topsongs:%d:%d", artistID, count)
-	if cached, ok := kvGetTopSongs(cacheKey); ok {
+	var cached metadata.TopSongsResponse
+	if kvGet(cacheKey, &cached) {
 		pdk.Log(pdk.LogDebug, "top songs cache hit: "+cacheKey)
-		return cached, nil
+		return &cached, nil
 	}
 
 	// Fetch from iTunes Lookup API
