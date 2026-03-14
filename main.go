@@ -159,6 +159,14 @@ func kvSetWithTTL(key string, value any, ttlSeconds int64) error {
 	return host.KVStoreSetWithTTL(key, data, ttlSeconds)
 }
 
+// clampLimit returns limit clamped to [1, total], or total when limit <= 0.
+func clampLimit(limit, total int) int {
+	if limit <= 0 || limit > total {
+		return total
+	}
+	return limit
+}
+
 // --- HTTP helper ---
 
 // httpGet performs a GET request and returns the response body.
@@ -587,13 +595,7 @@ func (a *appleMusicAgent) GetSimilarArtists(input metadata.SimilarArtistsRequest
 	}
 	pdk.Log(pdk.LogDebug, fmt.Sprintf("GetSimilarArtists: found %d similar artists", len(page.SimilarArtists)))
 
-	limit := int(input.Limit)
-	if limit <= 0 {
-		limit = len(page.SimilarArtists)
-	}
-	if limit > len(page.SimilarArtists) {
-		limit = len(page.SimilarArtists)
-	}
+	limit := clampLimit(int(input.Limit), len(page.SimilarArtists))
 
 	artists := make([]metadata.ArtistRef, 0, limit)
 	for i := 0; i < limit; i++ {
