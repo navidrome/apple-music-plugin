@@ -5,19 +5,20 @@
 
 **Attention: This plugin requires Navidrome 0.61.0 (not released yet) or later.**
 
-This plugin fetches artist metadata from Apple Music using free iTunes/Apple Music endpoints — no API key or authentication required.
-It provides artist biographies, images, similar artists, and top songs by scraping Apple Music web pages and querying the iTunes Search/Lookup APIs.
+This plugin fetches artist and album metadata from Apple Music using free iTunes/Apple Music endpoints — no API key or authentication required.
+It provides artist biographies, images, similar artists, top songs, and album artwork by scraping Apple Music web pages and querying the iTunes Search/Lookup APIs.
 
 ## Features
 
 - Fetches artist biographies from Apple Music pages
 - Retrieves artist images in multiple sizes (1000x1000, 600x600, 300x300)
+- Retrieves album artwork in multiple sizes (1000x1000, 600x600, 300x300)
 - Discovers similar artists from Apple Music's artist pages
 - Fetches top songs via the iTunes Lookup API
 - Provides Apple Music artist page URLs
 - Multi-country fallback: tries multiple storefronts in order until content is found
 - Localized biographies based on country code (e.g., `br` for Portuguese, `de` for German)
-- Aggressive caching to minimize external requests
+- Aggressive caching with negative caching (2-hour TTL for "not found" results) to minimize external requests
 
 ## Installation
 
@@ -55,17 +56,17 @@ Access the plugin configuration in Navidrome: **Settings > Plugins > Apple Music
 #### Cache TTL (days)
 - **Default**: `7`
 - **What it is**: How many days to cache scraped metadata (biographies, images, similar artists) before re-fetching from Apple Music
-- **Note**: Artist ID mappings are cached permanently since they don't change
+- **Note**: Artist ID mappings are cached permanently since they don't change. "Not found" results (artists or albums with no match) are cached for 2 hours to avoid repeated API calls
 
 #### Capabilities
 - **Default**: All enabled
-- **What it is**: Each capability (Artist URL, Artist Biography, Artist Images, Similar Artists, Top Songs) can be individually toggled on or off. When disabled, the plugin will skip that capability and Navidrome will fall through to the next configured agent.
+- **What it is**: Each capability (Artist URL, Artist Biography, Artist Images, Similar Artists, Top Songs, Album Images) can be individually toggled on or off. When disabled, the plugin will skip that capability and Navidrome will fall through to the next configured agent.
 
 ## How It Works
 
 ### Plugin Capabilities
 
-The plugin implements five metadata provider capabilities:
+The plugin implements six metadata provider capabilities:
 
 | Capability             | Purpose                                                        |
 |------------------------|----------------------------------------------------------------|
@@ -74,6 +75,7 @@ The plugin implements five metadata provider capabilities:
 | **GetArtistImages**    | Retrieves artist images in three sizes                         |
 | **GetSimilarArtists**  | Discovers similar artists from the Apple Music artist page     |
 | **GetArtistTopSongs**  | Fetches popular tracks via the iTunes Lookup API               |
+| **GetAlbumImages**     | Retrieves album artwork in three sizes via iTunes Search API   |
 
 ### Host Services
 
@@ -89,14 +91,15 @@ The plugin implements five metadata provider capabilities:
 1. **Artist lookup** — Searches the iTunes API by artist name and caches the Apple Music artist ID
 2. **Page fetch** — Fetches the Apple Music artist page for the configured country
 3. **Data extraction** — Parses JSON-LD structured data and HTML for biography, images, and similar artists
-4. **Country fallback** — If the requested field is empty, tries the next configured country
-5. **Caching** — Stores results in KVStore with configurable TTL to avoid repeated fetches
+4. **Album lookup** — Searches the iTunes API by artist name + album name to find album artwork
+5. **Country fallback** — If the requested field is empty, tries the next configured country
+6. **Caching** — Stores results in KVStore with configurable TTL; caches "not found" results with a 2-hour TTL to avoid repeated lookups
 
 ### Data Sources
 
 | Source            | URL                                       | Data                               |
 |-------------------|-------------------------------------------|------------------------------------|
-| iTunes Search API | `itunes.apple.com/search`                 | Artist ID resolution               |
+| iTunes Search API | `itunes.apple.com/search`                 | Artist ID resolution, album artwork|
 | iTunes Lookup API | `itunes.apple.com/lookup`                 | Top songs                          |
 | Apple Music Web   | `music.apple.com/{country}/artist/-/{id}` | Biography, images, similar artists |
 
