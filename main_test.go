@@ -256,6 +256,14 @@ var _ = Describe("appleMusicAgent", func() {
 			_, err := parseJSONLD(html)
 			Expect(err).To(HaveOccurred())
 		})
+
+		It("handles script tag with id attribute before type", func() {
+			html := `<html><script id=schema:music-group type="application/ld+json">{"@type":"MusicGroup","name":"Evanescence","description":"A rock band","image":"https://example.com/img.png"}</script></html>`
+			ld, err := parseJSONLD(html)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(ld.Name).To(Equal("Evanescence"))
+			Expect(ld.Description).To(Equal("A rock band"))
+		})
 	})
 
 	Describe("parseOpenGraphImage", func() {
@@ -284,12 +292,12 @@ var _ = Describe("appleMusicAgent", func() {
 	})
 
 	Describe("parseSimilarArtists", func() {
-		It("extracts artists from section with aria-labels", func() {
-			html := `<html><section class="svelte-abc">` +
-				`<div aria-label="Similar Artists">` +
-				`<div aria-label="Ed Sheeran, "><a href="/us/artist/ed-sheeran/183313439"></a></div>` +
-				`<div aria-label="Adele, "><a href="/us/artist/adele/262836961"></a></div>` +
-				`</div></section></html>`
+		It("extracts artists from lockup title elements", func() {
+			html := `<html><div data-testid="section-container" aria-label="Similar Artists">` +
+				`<div data-testid="section-content">` +
+				`<h3 data-testid="ellipse-lockup__title" class="title">Ed Sheeran</h3>` +
+				`<h3 data-testid="ellipse-lockup__title" class="title">Adele</h3>` +
+				`</div></div></html>`
 			artists := parseSimilarArtists(html)
 			Expect(artists).To(HaveLen(2))
 			Expect(artists[0].Name).To(Equal("Ed Sheeran"))
@@ -301,13 +309,25 @@ var _ = Describe("appleMusicAgent", func() {
 		})
 
 		It("deduplicates artist names", func() {
-			html := `<html><section class="svelte-abc">` +
-				`<div aria-label="Similar Artists">` +
-				`<div aria-label="Ed Sheeran, "></div>` +
-				`<div aria-label="Ed Sheeran, "></div>` +
-				`</div></section></html>`
+			html := `<html><div aria-label="Similar Artists">` +
+				`<h3 data-testid="ellipse-lockup__title">Ed Sheeran</h3>` +
+				`<h3 data-testid="ellipse-lockup__title">Ed Sheeran</h3>` +
+				`</div></html>`
 			artists := parseSimilarArtists(html)
 			Expect(artists).To(HaveLen(1))
+		})
+
+		It("stops at next section boundary", func() {
+			html := `<html><div aria-label="Similar Artists">` +
+				`<h3 data-testid="ellipse-lockup__title">Amy Lee</h3>` +
+				// pad to get past the 100 char offset for boundary detection
+				strings.Repeat(" ", 100) +
+				`<div data-testid="section-container">` +
+				`<h3 data-testid="ellipse-lockup__title">Not Similar</h3>` +
+				`</div></html>`
+			artists := parseSimilarArtists(html)
+			Expect(artists).To(HaveLen(1))
+			Expect(artists[0].Name).To(Equal("Amy Lee"))
 		})
 	})
 

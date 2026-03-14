@@ -292,16 +292,19 @@ func findBestArtistMatch(query string, results []itunesArtistResult) *itunesArti
 
 // --- HTML parsing helpers ---
 
+// jsonLDRegex matches a <script> tag containing type="application/ld+json", regardless of
+// other attributes (e.g. id=...) that may appear before or after the type attribute.
+var jsonLDRegex = regexp.MustCompile(`(?i)<script[^>]*type="application/ld\+json"[^>]*>`)
+
 // parseJSONLD extracts and parses JSON-LD data from an HTML page.
 func parseJSONLD(html string) (*jsonLDData, error) {
-	const startTag = `<script type="application/ld+json">`
 	const endTag = `</script>`
 
-	startIdx := strings.Index(html, startTag)
-	if startIdx == -1 {
+	loc := jsonLDRegex.FindStringIndex(html)
+	if loc == nil {
 		return nil, errors.New("no JSON-LD found")
 	}
-	startIdx += len(startTag)
+	startIdx := loc[1] // position right after the opening tag
 
 	endIdx := strings.Index(html[startIdx:], endTag)
 	if endIdx == -1 {
@@ -342,39 +345,29 @@ func rewriteImageSize(imageURL string, size int) string {
 	return imageURLRegex.ReplaceAllString(imageURL, fmt.Sprintf("/%dx%dbb.", size, size))
 }
 
-// parseSimilarArtists extracts similar artist names from the Apple Music HTML page.
-// The section is identified by structural patterns since the label is localized.
-func parseSimilarArtists(html string) []similarArtistInfo {
-	// Find the similar artists section by looking for the section ID pattern.
-	sectionMarkers := []string{
-		`aria-label="Similar Artists"`,
-		`aria-label="Artistas semelhantes"`,
-		`aria-label="Ähnliche Künstler"`,
-		`aria-label="Artistes similaires"`,
-		`data-testid="section-content"`,
-	}
+// similarSectionMarkers contains localized aria-label values for the "Similar Artists" section.
+var similarSectionMarkers = []string{
+	`aria-label="Similar Artists"`,
+	`aria-label="Artistas semelhantes"`,
+	`aria-label="Ähnliche Künstler"`,
+	`aria-label="Artistes similaires"`,
+	`aria-label="Artistas similares"`,
+}
 
+// lockupTitleRegex matches artist names inside the ellipse-lockup title elements.
+// Apple Music uses: <h3 data-testid="ellipse-lockup__title" ...>Artist Name</h3>
+var lockupTitleRegex = regexp.MustCompile(`data-testid="ellipse-lockup__title"[^>]*>([^<]+)<`)
+
+// parseSimilarArtists extracts similar artist names from the Apple Music HTML page.
+func parseSimilarArtists(html string) []similarArtistInfo {
+	// Find the similar artists section by looking for localized aria-label markers.
 	sectionStart := -1
-	for _, marker := range sectionMarkers {
+	for _, marker := range similarSectionMarkers {
 		idx := strings.Index(html, marker)
 		if idx != -1 {
 			pdk.Log(pdk.LogDebug, fmt.Sprintf("similar artists: found marker %q at position %d", marker, idx))
-			// Verify this is actually a similar artists section by checking context
-			contextStart := idx
-			if idx > 500 {
-				contextStart = idx - 500
-			}
-			context := html[contextStart:idx]
-			if strings.Contains(context, "svelte-") || strings.Contains(context, "section") {
-				sectionStart = idx
-				pdk.Log(pdk.LogDebug, "similar artists: context verified (svelte/section found)")
-				break
-			}
-			// Fallback: use this marker position
-			if sectionStart == -1 {
-				pdk.Log(pdk.LogDebug, "similar artists: using marker as fallback (no svelte/section in context)")
-				sectionStart = idx
-			}
+			sectionStart = idx
+			break
 		}
 	}
 
@@ -383,32 +376,29 @@ func parseSimilarArtists(html string) []similarArtistInfo {
 		return nil
 	}
 
-	// Extract artist info from the section (next ~5000 chars should cover it)
-	sectionEnd := sectionStart + 5000
+	// Extract a generous chunk after the section marker to cover all artist lockups.
+	// Each lockup is ~4-5KB, and sections typically have up to 10 artists.
+	sectionEnd := sectionStart + 60000
 	if sectionEnd > len(html) {
 		sectionEnd = len(html)
 	}
 	section := html[sectionStart:sectionEnd]
+
+	// Limit to the current section by finding the next section boundary.
+	if nextSection := strings.Index(section[100:], `data-testid="section-container"`); nextSection != -1 {
+		section = section[:100+nextSection]
+	}
 	pdk.Log(pdk.LogDebug, fmt.Sprintf("similar artists: extracting from section (%d chars)", len(section)))
 
-	// Find all artist names via aria-label on lockup elements
+	// Extract artist names from ellipse-lockup title elements.
 	var artists []similarArtistInfo
 	seen := make(map[string]bool)
 
-	// Look for artist name patterns: lockup elements with aria-label containing artist names
-	namePattern := regexp.MustCompile(`aria-label="([^"]+?)(?:,\s|")`)
-	matches := namePattern.FindAllStringSubmatch(section, -1)
-	pdk.Log(pdk.LogDebug, fmt.Sprintf("similar artists: found %d aria-label matches in section", len(matches)))
+	matches := lockupTitleRegex.FindAllStringSubmatch(section, -1)
+	pdk.Log(pdk.LogDebug, fmt.Sprintf("similar artists: found %d lockup titles in section", len(matches)))
 	for _, m := range matches {
 		name := strings.TrimSpace(m[1])
-		// Skip section-level labels and non-artist labels
-		if name == "" || strings.Contains(strings.ToLower(name), "similar") ||
-			strings.Contains(strings.ToLower(name), "artist") ||
-			strings.Contains(strings.ToLower(name), "section") ||
-			seen[name] {
-			if name != "" && !seen[name] {
-				pdk.Log(pdk.LogDebug, fmt.Sprintf("similar artists: skipping label %q", name))
-			}
+		if name == "" || seen[name] {
 			continue
 		}
 		seen[name] = true
