@@ -225,8 +225,8 @@ func httpGet(rawURL string) ([]byte, int32, error) {
 
 // --- Name normalization ---
 
-// normalizeArtistName normalizes an artist name for cache key use.
-func normalizeArtistName(name string) string {
+// normalizeName normalizes an artist or album name for cache key use.
+func normalizeName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
 }
 
@@ -235,7 +235,7 @@ func normalizeArtistName(name string) string {
 // resolveArtistID looks up an Apple Music artist ID by name.
 // Uses KVStore cache for permanent storage of name→ID mappings.
 func resolveArtistID(artistName string) (int64, error) {
-	normalized := normalizeArtistName(artistName)
+	normalized := normalizeName(artistName)
 	if normalized == "" {
 		return 0, errors.New("empty artist name")
 	}
@@ -302,7 +302,7 @@ func resolveArtistID(artistName string) (int64, error) {
 // findBestArtistMatch finds the best matching artist from search results.
 // Uses case-insensitive exact match first, then falls back to first result.
 func findBestArtistMatch(query string, results []itunesArtistResult) *itunesArtistResult {
-	normalized := normalizeArtistName(query)
+	normalized := normalizeName(query)
 	var firstArtist *itunesArtistResult
 	for i := range results {
 		if results[i].WrapperType != "artist" {
@@ -311,7 +311,7 @@ func findBestArtistMatch(query string, results []itunesArtistResult) *itunesArti
 		if firstArtist == nil {
 			firstArtist = &results[i]
 		}
-		if normalizeArtistName(results[i].ArtistName) == normalized {
+		if normalizeName(results[i].ArtistName) == normalized {
 			return &results[i]
 		}
 	}
@@ -321,14 +321,14 @@ func findBestArtistMatch(query string, results []itunesArtistResult) *itunesArti
 // findBestAlbumMatch finds an album matching both name and artist from search results.
 // Returns nil if no exact match is found (case-insensitive).
 func findBestAlbumMatch(albumName, artistName string, results []itunesAlbumResult) *itunesAlbumResult {
-	normalizedAlbum := normalizeArtistName(albumName)
-	normalizedArtist := normalizeArtistName(artistName)
+	normalizedAlbum := normalizeName(albumName)
+	normalizedArtist := normalizeName(artistName)
 	for i := range results {
 		if results[i].WrapperType != "collection" {
 			continue
 		}
-		if normalizeArtistName(results[i].CollectionName) == normalizedAlbum &&
-			normalizeArtistName(results[i].ArtistName) == normalizedArtist {
+		if normalizeName(results[i].CollectionName) == normalizedAlbum &&
+			normalizeName(results[i].ArtistName) == normalizedArtist {
 			return &results[i]
 		}
 	}
@@ -338,8 +338,8 @@ func findBestAlbumMatch(albumName, artistName string, results []itunesAlbumResul
 // resolveAlbumArtwork looks up album artwork URL from the iTunes Search API.
 // Uses KVStore cache with TTL. Caches "not found" with a shorter negative TTL.
 func resolveAlbumArtwork(albumName, artistName string) (string, error) {
-	normalizedAlbum := normalizeArtistName(albumName)
-	normalizedArtist := normalizeArtistName(artistName)
+	normalizedAlbum := normalizeName(albumName)
+	normalizedArtist := normalizeName(artistName)
 	if normalizedAlbum == "" {
 		return "", errors.New("empty album name")
 	}

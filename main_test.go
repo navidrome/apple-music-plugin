@@ -123,13 +123,13 @@ var _ = Describe("appleMusicAgent", func() {
 		})
 	})
 
-	Describe("normalizeArtistName", func() {
+	Describe("normalizeName", func() {
 		It("lowercases and trims", func() {
-			Expect(normalizeArtistName("  Taylor Swift  ")).To(Equal("taylor swift"))
+			Expect(normalizeName("  Taylor Swift  ")).To(Equal("taylor swift"))
 		})
 
 		It("handles empty string", func() {
-			Expect(normalizeArtistName("")).To(Equal(""))
+			Expect(normalizeName("")).To(Equal(""))
 		})
 	})
 
