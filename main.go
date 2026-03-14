@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/navidrome/navidrome/plugins/pdk/go/host"
@@ -287,4 +288,127 @@ func findBestArtistMatch(query string, results []itunesArtistResult) *itunesArti
 		}
 	}
 	return nil
+}
+
+// --- HTML parsing helpers ---
+
+// parseJSONLD extracts and parses JSON-LD data from an HTML page.
+func parseJSONLD(html string) (*jsonLDData, error) {
+	const startTag = `<script type="application/ld+json">`
+	const endTag = `</script>`
+
+	startIdx := strings.Index(html, startTag)
+	if startIdx == -1 {
+		return nil, errors.New("no JSON-LD found")
+	}
+	startIdx += len(startTag)
+
+	endIdx := strings.Index(html[startIdx:], endTag)
+	if endIdx == -1 {
+		return nil, errors.New("malformed JSON-LD")
+	}
+
+	jsonStr := strings.TrimSpace(html[startIdx : startIdx+endIdx])
+
+	var ld jsonLDData
+	if err := json.Unmarshal([]byte(jsonStr), &ld); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON-LD: %w", err)
+	}
+
+	return &ld, nil
+}
+
+// parseOpenGraphImage extracts the og:image URL from an HTML page.
+func parseOpenGraphImage(html string) string {
+	// Look for <meta property="og:image" content="...">
+	pattern := `<meta property="og:image" content="`
+	idx := strings.Index(html, pattern)
+	if idx == -1 {
+		return ""
+	}
+	idx += len(pattern)
+	endIdx := strings.Index(html[idx:], `"`)
+	if endIdx == -1 {
+		return ""
+	}
+	return html[idx : idx+endIdx]
+}
+
+// imageURLRegex matches Apple's mzstatic.com image dimension segments like "486x486bb".
+var imageURLRegex = regexp.MustCompile(`/\d+x\d+[a-z]*\.`)
+
+// rewriteImageSize rewrites an Apple mzstatic.com image URL to the given size.
+func rewriteImageSize(imageURL string, size int) string {
+	return imageURLRegex.ReplaceAllString(imageURL, fmt.Sprintf("/%dx%dbb.", size, size))
+}
+
+// similarArtistLinkRegex matches Apple Music artist links in the similar artists section.
+// Pattern: /XX/artist/artist-name/12345 where XX is a country code.
+var similarArtistLinkRegex = regexp.MustCompile(`/[a-z]{2}/artist/[^/]+/(\d+)`)
+
+// parseSimilarArtists extracts similar artist names from the Apple Music HTML page.
+// The section is identified by structural patterns since the label is localized.
+func parseSimilarArtists(html string) []similarArtistInfo {
+	// Find the similar artists section by looking for the section ID pattern.
+	sectionMarkers := []string{
+		`aria-label="Similar Artists"`,
+		`aria-label="Artistas semelhantes"`,
+		`aria-label="Ähnliche Künstler"`,
+		`aria-label="Artistes similaires"`,
+		`data-testid="section-content"`,
+	}
+
+	sectionStart := -1
+	for _, marker := range sectionMarkers {
+		idx := strings.Index(html, marker)
+		if idx != -1 {
+			// Verify this is actually a similar artists section by checking context
+			contextStart := idx
+			if idx > 500 {
+				contextStart = idx - 500
+			}
+			context := html[contextStart:idx]
+			if strings.Contains(context, "svelte-") || strings.Contains(context, "section") {
+				sectionStart = idx
+				break
+			}
+			// Fallback: use this marker position
+			if sectionStart == -1 {
+				sectionStart = idx
+			}
+		}
+	}
+
+	if sectionStart == -1 {
+		return nil
+	}
+
+	// Extract artist info from the section (next ~5000 chars should cover it)
+	sectionEnd := sectionStart + 5000
+	if sectionEnd > len(html) {
+		sectionEnd = len(html)
+	}
+	section := html[sectionStart:sectionEnd]
+
+	// Find all artist names via aria-label on lockup elements
+	var artists []similarArtistInfo
+	seen := make(map[string]bool)
+
+	// Look for artist name patterns: lockup elements with aria-label containing artist names
+	namePattern := regexp.MustCompile(`aria-label="([^"]+?)(?:,\s|")`)
+	matches := namePattern.FindAllStringSubmatch(section, -1)
+	for _, m := range matches {
+		name := strings.TrimSpace(m[1])
+		// Skip section-level labels and non-artist labels
+		if name == "" || strings.Contains(strings.ToLower(name), "similar") ||
+			strings.Contains(strings.ToLower(name), "artist") ||
+			strings.Contains(strings.ToLower(name), "section") ||
+			seen[name] {
+			continue
+		}
+		seen[name] = true
+		artists = append(artists, similarArtistInfo{Name: name})
+	}
+
+	return artists
 }
