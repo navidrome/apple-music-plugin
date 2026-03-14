@@ -270,6 +270,14 @@ var _ = Describe("appleMusicAgent", func() {
 			Expect(err).To(MatchError("empty artist name"))
 		})
 
+		It("returns error on negative cache hit (ArtistID == 0)", func() {
+			data := mustMarshal(cachedArtistID{ArtistID: 0})
+			host.KVStoreMock.On("Get", "artist:unknown artist").Return(data, true, nil)
+
+			_, err := resolveArtistID("Unknown Artist")
+			Expect(err).To(MatchError("no matching artist found"))
+		})
+
 		It("returns error when no results found", func() {
 			host.KVStoreMock.On("Get", "artist:unknown").Return([]byte(nil), false, nil)
 			host.ConfigMock.On("Get", configCountries).Return("us", true)
@@ -278,8 +286,48 @@ var _ = Describe("appleMusicAgent", func() {
 			respBody := mustMarshal(searchResp)
 			host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
 
+			// Expect negative cache write
+			host.KVStoreMock.On("SetWithTTL", "artist:unknown", mock.Anything, int64(negativeCacheTTLSeconds)).Return(nil)
+
 			_, err := resolveArtistID("Unknown")
 			Expect(err).To(MatchError("no artist found"))
+		})
+
+		It("caches negative result when no results found", func() {
+			host.KVStoreMock.On("Get", "artist:unknown").Return([]byte(nil), false, nil)
+			host.ConfigMock.On("Get", configCountries).Return("us", true)
+
+			searchResp := itunesSearchResponse{ResultCount: 0, Results: nil}
+			respBody := mustMarshal(searchResp)
+			host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
+
+			negativeCacheData := mustMarshal(cachedArtistID{ArtistID: 0})
+			host.KVStoreMock.On("SetWithTTL", "artist:unknown", negativeCacheData, int64(negativeCacheTTLSeconds)).Return(nil)
+
+			_, err := resolveArtistID("Unknown")
+			Expect(err).To(HaveOccurred())
+			host.KVStoreMock.AssertCalled(GinkgoT(), "SetWithTTL", "artist:unknown", negativeCacheData, int64(negativeCacheTTLSeconds))
+		})
+
+		It("caches negative result when no matching artist found", func() {
+			host.KVStoreMock.On("Get", "artist:unknown").Return([]byte(nil), false, nil)
+			host.ConfigMock.On("Get", configCountries).Return("us", true)
+
+			searchResp := itunesSearchResponse{
+				ResultCount: 1,
+				Results: []itunesArtistResult{
+					{WrapperType: "collection", ArtistName: "Not An Artist", ArtistID: 1},
+				},
+			}
+			respBody := mustMarshal(searchResp)
+			host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
+
+			negativeCacheData := mustMarshal(cachedArtistID{ArtistID: 0})
+			host.KVStoreMock.On("SetWithTTL", "artist:unknown", negativeCacheData, int64(negativeCacheTTLSeconds)).Return(nil)
+
+			_, err := resolveArtistID("Unknown")
+			Expect(err).To(MatchError("no matching artist found"))
+			host.KVStoreMock.AssertCalled(GinkgoT(), "SetWithTTL", "artist:unknown", negativeCacheData, int64(negativeCacheTTLSeconds))
 		})
 	})
 

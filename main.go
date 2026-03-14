@@ -18,7 +18,8 @@ const (
 	defaultCountry    = "us"
 	defaultCacheTTL   = 7 // days
 	defaultTopSongs   = 10
-	httpTimeoutMs     = 10000
+	httpTimeoutMs              = 10000
+	negativeCacheTTLSeconds    = 7200 // 2 hours
 	iTunesSearchURL   = "https://itunes.apple.com/search"
 	iTunesLookupURL   = "https://itunes.apple.com/lookup"
 	appleMusicBaseURL = "https://music.apple.com"
@@ -225,6 +226,10 @@ func resolveArtistID(artistName string) (int64, error) {
 	cacheKey := "artist:" + normalized
 	var cached cachedArtistID
 	if kvGet(cacheKey, &cached) {
+		if cached.ArtistID == 0 {
+			pdk.Log(pdk.LogDebug, "artist ID negative cache hit: "+normalized)
+			return 0, errors.New("no matching artist found")
+		}
 		pdk.Log(pdk.LogDebug, "artist ID cache hit: "+normalized)
 		return cached.ArtistID, nil
 	}
@@ -252,12 +257,18 @@ func resolveArtistID(artistName string) (int64, error) {
 	}
 
 	if searchResp.ResultCount == 0 {
+		if err := kvSetWithTTL(cacheKey, cachedArtistID{ArtistID: 0}, negativeCacheTTLSeconds); err != nil {
+			pdk.Log(pdk.LogWarn, "failed to cache negative artist result: "+err.Error())
+		}
 		return 0, errors.New("no artist found")
 	}
 
 	// Find best match by name similarity
 	bestMatch := findBestArtistMatch(artistName, searchResp.Results)
 	if bestMatch == nil {
+		if err := kvSetWithTTL(cacheKey, cachedArtistID{ArtistID: 0}, negativeCacheTTLSeconds); err != nil {
+			pdk.Log(pdk.LogWarn, "failed to cache negative artist result: "+err.Error())
+		}
 		return 0, errors.New("no matching artist found")
 	}
 
