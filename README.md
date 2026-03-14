@@ -43,6 +43,8 @@ Access the plugin configuration in Navidrome: **Settings > Plugins > Apple Music
 
 ### Configuration Fields
 
+<img alt="Plugin configuration options" src="https://raw.githubusercontent.com/navidrome/apple-music-plugin/main/.github/screenshot.png">
+
 #### Countries
 - **Default**: `us`
 - **What it is**: Comma-separated list of two-letter ISO country codes for Apple Music storefronts
