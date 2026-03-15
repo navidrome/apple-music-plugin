@@ -281,7 +281,7 @@ var _ = Describe("appleMusicAgent", func() {
 			Expect(match).To(BeNil())
 		})
 
-		It("matches after stripping '- Single' suffix from iTunes name", func() {
+		It("matches by base name when iTunes adds ' - Single' suffix", func() {
 			results := []itunesAlbumResult{
 				{WrapperType: "collection", CollectionName: "Versions - Single", ArtistName: "Thievery Corporation", ArtworkURL100: "https://img.jpg"},
 			}
@@ -290,15 +290,7 @@ var _ = Describe("appleMusicAgent", func() {
 			Expect(match.CollectionName).To(Equal("Versions - Single"))
 		})
 
-		It("matches after stripping '- EP' suffix from iTunes name", func() {
-			results := []itunesAlbumResult{
-				{WrapperType: "collection", CollectionName: "My Album - EP", ArtistName: "Artist", ArtworkURL100: "https://img.jpg"},
-			}
-			match := findBestAlbumMatch("My Album", "Artist", results)
-			Expect(match).ToNot(BeNil())
-		})
-
-		It("matches after stripping '(Deluxe Edition)' suffix", func() {
+		It("matches by base name when iTunes adds '(Deluxe Edition)'", func() {
 			results := []itunesAlbumResult{
 				{WrapperType: "collection", CollectionName: "1989 (Deluxe Edition)", ArtistName: "Taylor Swift", ArtworkURL100: "https://img.jpg"},
 			}
@@ -306,7 +298,31 @@ var _ = Describe("appleMusicAgent", func() {
 			Expect(match).ToNot(BeNil())
 		})
 
-		It("prefers exact match over suffix-stripped match", func() {
+		It("matches by base name when input has decorations", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "The Dark Side of the Moon", ArtistName: "Pink Floyd", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("The Dark Side of the Moon (2020) - 7.1 Multichannel", "Pink Floyd", results)
+			Expect(match).ToNot(BeNil())
+		})
+
+		It("matches by containment when base names differ slightly", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "The Dark Side of the Moon", ArtistName: "Pink Floyd", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("Dark Side of the Moon", "Pink Floyd", results)
+			Expect(match).ToNot(BeNil())
+		})
+
+		It("matches by containment for Pompeii-style names", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "Pink Floyd at Pompeii - MCMLXXII (2025 Mix)", ArtistName: "Pink Floyd", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("Pink Floyd at Pompeii: MCMLXXII", "Pink Floyd", results)
+			Expect(match).ToNot(BeNil())
+		})
+
+		It("prefers exact match over base-name match", func() {
 			results := []itunesAlbumResult{
 				{WrapperType: "collection", CollectionName: "1989 (Deluxe Edition)", ArtistName: "Taylor Swift", ArtworkURL100: "https://deluxe.jpg"},
 				{WrapperType: "collection", CollectionName: "1989", ArtistName: "Taylor Swift", ArtworkURL100: "https://exact.jpg"},
@@ -316,12 +332,12 @@ var _ = Describe("appleMusicAgent", func() {
 			Expect(match.ArtworkURL100).To(Equal("https://exact.jpg"))
 		})
 
-		It("matches when input album name also has a suffix", func() {
+		It("does not match by containment when base name is too short", func() {
 			results := []itunesAlbumResult{
-				{WrapperType: "collection", CollectionName: "Versions - Single", ArtistName: "Artist", ArtworkURL100: "https://img.jpg"},
+				{WrapperType: "collection", CollectionName: "The Wall", ArtistName: "Pink Floyd", ArtworkURL100: "https://img.jpg"},
 			}
-			match := findBestAlbumMatch("Versions - Single", "Artist", results)
-			Expect(match).ToNot(BeNil())
+			match := findBestAlbumMatch("All", "Pink Floyd", results)
+			Expect(match).To(BeNil())
 		})
 	})
 

@@ -319,46 +319,40 @@ func findBestArtistMatch(query string, results []itunesArtistResult) *itunesArti
 	return firstArtist
 }
 
-// albumSuffixes are common iTunes collection name suffixes stripped during fuzzy matching.
-var albumSuffixes = []string{
-	" - single",
-	" - ep",
-	" (deluxe edition)",
-	" (deluxe)",
-	" (deluxe version)",
-}
+// baseNameDelimiters are characters that typically separate the core album title
+// from metadata decorations (e.g., remaster info, edition, format).
+var baseNameDelimiters = []string{" (", " [", " - ", ": "}
 
-// stripAlbumSuffix removes common iTunes suffixes from a normalized collection name.
-func stripAlbumSuffix(name string) string {
-	for _, suffix := range albumSuffixes {
-		if stripped, ok := strings.CutSuffix(name, suffix); ok {
-			return stripped
+// extractBaseName extracts the core album title by truncating at the first
+// delimiter that separates it from metadata decorations.
+// e.g., "The Dark Side of the Moon (50th Anniversary) [Remastered]" → "the dark side of the moon"
+// e.g., "Versions - Single" → "versions"
+func extractBaseName(normalized string) string {
+	for _, delim := range baseNameDelimiters {
+		if idx := strings.Index(normalized, delim); idx > 0 {
+			normalized = normalized[:idx]
 		}
 	}
-	return name
+	return strings.TrimSpace(normalized)
 }
 
 // findBestAlbumMatch finds an album matching both name and artist from search results.
-// First tries exact match on collection name, then falls back to matching after
-// stripping common iTunes suffixes (e.g., " - Single", " - EP", " (Deluxe)").
+// Uses a multi-pass strategy with decreasing strictness:
+//   - Pass 1: exact match on full collection name
+//   - Pass 2: exact match on base names (after stripping parenthetical/bracket/dash decorations)
+//   - Pass 3: containment match on base names (one contains the other)
 func findBestAlbumMatch(albumName, artistName string, results []itunesAlbumResult) *itunesAlbumResult {
 	normalizedAlbum := normalizeName(albumName)
 	normalizedArtist := normalizeName(artistName)
+	baseAlbum := extractBaseName(normalizedAlbum)
 
-	// Pass 1: exact match
-	for i := range results {
-		if results[i].WrapperType != "collection" {
-			continue
-		}
-		if normalizeName(results[i].CollectionName) == normalizedAlbum &&
-			normalizeName(results[i].ArtistName) == normalizedArtist {
-			return &results[i]
-		}
+	// Filter to collections matching the artist
+	type candidate struct {
+		index              int
+		normalizedName     string
+		baseName           string
 	}
-
-	// Pass 2: match after stripping common suffixes from iTunes collection name,
-	// and also try stripping suffixes from the input album name
-	strippedAlbum := stripAlbumSuffix(normalizedAlbum)
+	var candidates []candidate
 	for i := range results {
 		if results[i].WrapperType != "collection" {
 			continue
@@ -366,9 +360,36 @@ func findBestAlbumMatch(albumName, artistName string, results []itunesAlbumResul
 		if normalizeName(results[i].ArtistName) != normalizedArtist {
 			continue
 		}
-		strippedCollection := stripAlbumSuffix(normalizeName(results[i].CollectionName))
-		if strippedCollection == normalizedAlbum || strippedCollection == strippedAlbum {
-			return &results[i]
+		cn := normalizeName(results[i].CollectionName)
+		candidates = append(candidates, candidate{
+			index:          i,
+			normalizedName: cn,
+			baseName:       extractBaseName(cn),
+		})
+	}
+
+	// Pass 1: exact match on full name
+	for _, c := range candidates {
+		if c.normalizedName == normalizedAlbum {
+			return &results[c.index]
+		}
+	}
+
+	// Pass 2: exact match on base names
+	for _, c := range candidates {
+		if c.baseName == baseAlbum {
+			return &results[c.index]
+		}
+	}
+
+	// Pass 3: containment — one base name contains the other.
+	// Require the shorter name to be at least 4 characters to avoid false positives.
+	if len(baseAlbum) >= 4 {
+		for _, c := range candidates {
+			if len(c.baseName) >= 4 &&
+				(strings.Contains(c.baseName, baseAlbum) || strings.Contains(baseAlbum, c.baseName)) {
+				return &results[c.index]
+			}
 		}
 	}
 
