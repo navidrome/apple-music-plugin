@@ -372,15 +372,16 @@ var _ = Describe("appleMusicAgent", func() {
 			Expect(err).To(MatchError("empty artist name"))
 		})
 
-		It("returns error on negative cache hit (ArtistID == 0)", func() {
+		It("returns zero on negative cache hit (ArtistID == 0)", func() {
 			data := mustMarshal(cachedArtistID{ArtistID: 0})
 			host.KVStoreMock.On("Get", "artist:unknown artist").Return(data, true, nil)
 
-			_, err := resolveArtistID("Unknown Artist")
-			Expect(err).To(MatchError("no matching artist found"))
+			id, err := resolveArtistID("Unknown Artist")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(id).To(BeZero())
 		})
 
-		It("returns error when no results found", func() {
+		It("returns zero when no results found", func() {
 			host.KVStoreMock.On("Get", "artist:unknown").Return([]byte(nil), false, nil)
 			host.ConfigMock.On("Get", configCountries).Return("us", true)
 
@@ -391,8 +392,9 @@ var _ = Describe("appleMusicAgent", func() {
 			// Expect negative cache write
 			host.KVStoreMock.On("SetWithTTL", "artist:unknown", mock.Anything, int64(negativeCacheTTLSeconds)).Return(nil)
 
-			_, err := resolveArtistID("Unknown")
-			Expect(err).To(MatchError("no artist found"))
+			id, err := resolveArtistID("Unknown")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(id).To(BeZero())
 		})
 
 		It("caches negative result when no results found", func() {
@@ -406,8 +408,9 @@ var _ = Describe("appleMusicAgent", func() {
 			negativeCacheData := mustMarshal(cachedArtistID{ArtistID: 0})
 			host.KVStoreMock.On("SetWithTTL", "artist:unknown", negativeCacheData, int64(negativeCacheTTLSeconds)).Return(nil)
 
-			_, err := resolveArtistID("Unknown")
-			Expect(err).To(HaveOccurred())
+			id, err := resolveArtistID("Unknown")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(id).To(BeZero())
 			host.KVStoreMock.AssertCalled(GinkgoT(), "SetWithTTL", "artist:unknown", negativeCacheData, int64(negativeCacheTTLSeconds))
 		})
 
@@ -427,8 +430,9 @@ var _ = Describe("appleMusicAgent", func() {
 			negativeCacheData := mustMarshal(cachedArtistID{ArtistID: 0})
 			host.KVStoreMock.On("SetWithTTL", "artist:unknown", negativeCacheData, int64(negativeCacheTTLSeconds)).Return(nil)
 
-			_, err := resolveArtistID("Unknown")
-			Expect(err).To(MatchError("no matching artist found"))
+			id, err := resolveArtistID("Unknown")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(id).To(BeZero())
 			host.KVStoreMock.AssertCalled(GinkgoT(), "SetWithTTL", "artist:unknown", negativeCacheData, int64(negativeCacheTTLSeconds))
 		})
 	})
@@ -443,12 +447,13 @@ var _ = Describe("appleMusicAgent", func() {
 			Expect(url).To(Equal("https://cached.jpg"))
 		})
 
-		It("returns error on negative cache hit", func() {
+		It("returns empty on negative cache hit", func() {
 			data := mustMarshal(cachedAlbumArtwork{ArtworkURL: ""})
 			host.KVStoreMock.On("Get", "album:taylor swift:1989").Return(data, true, nil)
 
-			_, err := resolveAlbumArtwork("1989", "Taylor Swift")
-			Expect(err).To(MatchError("no matching album found"))
+			url, err := resolveAlbumArtwork("1989", "Taylor Swift")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(url).To(BeEmpty())
 		})
 
 		It("looks up albums via artist ID on cache miss", func() {
@@ -499,8 +504,9 @@ var _ = Describe("appleMusicAgent", func() {
 			negativeCacheData := mustMarshal(cachedAlbumArtwork{ArtworkURL: ""})
 			host.KVStoreMock.On("SetWithTTL", "album:taylor swift:unknown album", negativeCacheData, int64(negativeCacheTTLSeconds)).Return(nil)
 
-			_, err := resolveAlbumArtwork("Unknown Album", "Taylor Swift")
-			Expect(err).To(MatchError("no matching album found"))
+			url, err := resolveAlbumArtwork("Unknown Album", "Taylor Swift")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(url).To(BeEmpty())
 			host.KVStoreMock.AssertCalled(GinkgoT(), "SetWithTTL", "album:taylor swift:unknown album", negativeCacheData, int64(negativeCacheTTLSeconds))
 		})
 
@@ -520,8 +526,9 @@ var _ = Describe("appleMusicAgent", func() {
 			negativeCacheData := mustMarshal(cachedAlbumArtwork{ArtworkURL: ""})
 			host.KVStoreMock.On("SetWithTTL", "album:taylor swift:nope", negativeCacheData, int64(negativeCacheTTLSeconds)).Return(nil)
 
-			_, err := resolveAlbumArtwork("Nope", "Taylor Swift")
-			Expect(err).To(MatchError("no matching album found"))
+			url, err := resolveAlbumArtwork("Nope", "Taylor Swift")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(url).To(BeEmpty())
 		})
 
 		It("returns error on empty album name", func() {
@@ -744,13 +751,14 @@ var _ = Describe("appleMusicAgent", func() {
 			Expect(resp.Biography).To(Equal("Taylor Swift biography"))
 		})
 
-		It("returns error when no biography found", func() {
+		It("returns nil when no biography found", func() {
 			pageData := parsedPageData{ImageURL: "https://img.com/img.jpg"}
 			pageBytes := mustMarshal(pageData)
 			host.KVStoreMock.On("Get", "page:159260351:us").Return(pageBytes, true, nil)
 
-			_, err := agent.GetArtistBiography(metadata.ArtistRequest{Name: "Taylor Swift"})
-			Expect(err).To(MatchError("no biography found"))
+			resp, err := agent.GetArtistBiography(metadata.ArtistRequest{Name: "Taylor Swift"})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp).To(BeNil())
 		})
 	})
 
@@ -775,22 +783,24 @@ var _ = Describe("appleMusicAgent", func() {
 			Expect(resp.Images[2].Size).To(Equal(int32(300)))
 		})
 
-		It("returns error when no image found", func() {
+		It("returns nil when no image found", func() {
 			pageData := parsedPageData{Biography: "A bio"}
 			pageBytes := mustMarshal(pageData)
 			host.KVStoreMock.On("Get", "page:159260351:us").Return(pageBytes, true, nil)
 
-			_, err := agent.GetArtistImages(metadata.ArtistRequest{Name: "Taylor Swift"})
-			Expect(err).To(MatchError("no artist image found"))
+			resp, err := agent.GetArtistImages(metadata.ArtistRequest{Name: "Taylor Swift"})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp).To(BeNil())
 		})
 
-		It("returns error when image is the generic Apple Music placeholder", func() {
+		It("returns nil when image is the generic Apple Music placeholder", func() {
 			pageData := parsedPageData{ImageURL: "https://music.apple.com/assets/meta/apple-music.png"}
 			pageBytes := mustMarshal(pageData)
 			host.KVStoreMock.On("Get", "page:159260351:us").Return(pageBytes, true, nil)
 
-			_, err := agent.GetArtistImages(metadata.ArtistRequest{Name: "Taylor Swift"})
-			Expect(err).To(MatchError("no artist image found"))
+			resp, err := agent.GetArtistImages(metadata.ArtistRequest{Name: "Taylor Swift"})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp).To(BeNil())
 		})
 	})
 
@@ -886,12 +896,13 @@ var _ = Describe("appleMusicAgent", func() {
 			Expect(resp.Images[2].URL).To(ContainSubstring("300x300bb"))
 		})
 
-		It("returns error when album not found", func() {
+		It("returns nil when album not found", func() {
 			data := mustMarshal(cachedAlbumArtwork{ArtworkURL: ""})
 			host.KVStoreMock.On("Get", "album:taylor swift:unknown").Return(data, true, nil)
 
-			_, err := agent.GetAlbumImages(metadata.AlbumRequest{Name: "Unknown", Artist: "Taylor Swift"})
-			Expect(err).To(HaveOccurred())
+			resp, err := agent.GetAlbumImages(metadata.AlbumRequest{Name: "Unknown", Artist: "Taylor Swift"})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp).To(BeNil())
 		})
 
 		It("returns nil when disabled", func() {

@@ -262,7 +262,7 @@ func resolveArtistID(artistName string) (int64, error) {
 	if kvGet(cacheKey, &cached) {
 		if cached.ArtistID == 0 {
 			pdk.Log(pdk.LogDebug, "artist ID negative cache hit: "+normalized)
-			return 0, errors.New("no matching artist found")
+			return 0, nil
 		}
 		pdk.Log(pdk.LogDebug, "artist ID cache hit: "+normalized)
 		return cached.ArtistID, nil
@@ -283,19 +283,21 @@ func resolveArtistID(artistName string) (int64, error) {
 	}
 
 	if searchResp.ResultCount == 0 {
+		pdk.Log(pdk.LogDebug, "no artist found for: "+artistName)
 		if err := kvSetWithTTL(cacheKey, cachedArtistID{ArtistID: 0}, negativeCacheTTLSeconds); err != nil {
 			pdk.Log(pdk.LogWarn, "failed to cache negative artist result: "+err.Error())
 		}
-		return 0, errors.New("no artist found")
+		return 0, nil
 	}
 
 	// Find best match by name similarity
 	bestMatch := findBestArtistMatch(artistName, searchResp.Results)
 	if bestMatch == nil {
+		pdk.Log(pdk.LogDebug, "no matching artist found for: "+artistName)
 		if err := kvSetWithTTL(cacheKey, cachedArtistID{ArtistID: 0}, negativeCacheTTLSeconds); err != nil {
 			pdk.Log(pdk.LogWarn, "failed to cache negative artist result: "+err.Error())
 		}
-		return 0, errors.New("no matching artist found")
+		return 0, nil
 	}
 
 	// Cache permanently
@@ -420,7 +422,7 @@ func resolveAlbumArtwork(albumName, artistName string) (string, error) {
 	if kvGet(cacheKey, &cached) {
 		if cached.ArtworkURL == "" {
 			pdk.Log(pdk.LogDebug, "album artwork negative cache hit: "+cacheKey)
-			return "", errors.New("no matching album found")
+			return "", nil
 		}
 		pdk.Log(pdk.LogDebug, "album artwork cache hit: "+cacheKey)
 		return cached.ArtworkURL, nil
@@ -430,6 +432,10 @@ func resolveAlbumArtwork(albumName, artistName string) (string, error) {
 	artistID, err := resolveArtistID(artistName)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve artist for album lookup: %w", err)
+	}
+	if artistID == 0 {
+		pdk.Log(pdk.LogDebug, "artist not found for album lookup: "+artistName)
+		return "", nil
 	}
 
 	// Look up all albums by artist ID via the iTunes Lookup API
@@ -450,10 +456,11 @@ func resolveAlbumArtwork(albumName, artistName string) (string, error) {
 		artworkURL = bestMatch.ArtworkURL100
 	}
 	if artworkURL == "" {
+		pdk.Log(pdk.LogDebug, fmt.Sprintf("no matching album found for '%s' by '%s'", albumName, artistName))
 		if err := kvSetWithTTL(cacheKey, cachedAlbumArtwork{ArtworkURL: ""}, negativeCacheTTLSeconds); err != nil {
 			pdk.Log(pdk.LogWarn, "failed to cache negative album result: "+err.Error())
 		}
-		return "", errors.New("no matching album found")
+		return "", nil
 	}
 
 	// Cache with standard TTL
@@ -672,7 +679,8 @@ func fetchArtistPage(artistID int64, wantField pageField) (*parsedPageData, erro
 	if firstResult != nil {
 		return firstResult, nil
 	}
-	return nil, errors.New("no page data found for any country")
+	pdk.Log(pdk.LogDebug, fmt.Sprintf("no page data found for artist %d in any country", artistID))
+	return nil, nil
 }
 
 // parsePage extracts all metadata from an Apple Music artist HTML page.
@@ -746,6 +754,9 @@ func (a *appleMusicAgent) GetArtistURL(input metadata.ArtistRequest) (*metadata.
 	if err != nil {
 		return nil, err
 	}
+	if artistID == 0 {
+		return nil, nil
+	}
 
 	countries := getCountries()
 	artistURL := fmt.Sprintf("%s/%s/artist/-/%d", appleMusicBaseURL, countries[0], artistID)
@@ -761,14 +772,17 @@ func (a *appleMusicAgent) GetArtistBiography(input metadata.ArtistRequest) (*met
 	if err != nil {
 		return nil, err
 	}
+	if artistID == 0 {
+		return nil, nil
+	}
 
 	page, err := fetchArtistPage(artistID, fieldBiography)
 	if err != nil {
 		return nil, err
 	}
-
-	if page.Biography == "" {
-		return nil, errors.New("no biography found")
+	if page == nil || page.Biography == "" {
+		pdk.Log(pdk.LogDebug, "no biography found for: "+input.Name)
+		return nil, nil
 	}
 
 	return &metadata.ArtistBiographyResponse{Biography: page.Biography}, nil
@@ -783,14 +797,17 @@ func (a *appleMusicAgent) GetArtistImages(input metadata.ArtistRequest) (*metada
 	if err != nil {
 		return nil, err
 	}
+	if artistID == 0 {
+		return nil, nil
+	}
 
 	page, err := fetchArtistPage(artistID, fieldImage)
 	if err != nil {
 		return nil, err
 	}
-
-	if page.ImageURL == "" || isPlaceholderImage(page.ImageURL) {
-		return nil, errors.New("no artist image found")
+	if page == nil || page.ImageURL == "" || isPlaceholderImage(page.ImageURL) {
+		pdk.Log(pdk.LogDebug, "no artist image found for: "+input.Name)
+		return nil, nil
 	}
 
 	return &metadata.ArtistImagesResponse{Images: buildImageList(page.ImageURL)}, nil
@@ -805,14 +822,17 @@ func (a *appleMusicAgent) GetSimilarArtists(input metadata.SimilarArtistsRequest
 	if err != nil {
 		return nil, err
 	}
+	if artistID == 0 {
+		return nil, nil
+	}
 
 	page, err := fetchArtistPage(artistID, fieldSimilar)
 	if err != nil {
 		return nil, err
 	}
-
-	if len(page.SimilarArtists) == 0 {
-		return nil, errors.New("no similar artists found")
+	if page == nil || len(page.SimilarArtists) == 0 {
+		pdk.Log(pdk.LogDebug, "no similar artists found for: "+input.Name)
+		return nil, nil
 	}
 
 	limit := clampLimit(int(input.Limit), len(page.SimilarArtists))
@@ -835,6 +855,9 @@ func (a *appleMusicAgent) GetArtistTopSongs(input metadata.TopSongsRequest) (*me
 	artistID, err := resolveArtistID(input.Name)
 	if err != nil {
 		return nil, err
+	}
+	if artistID == 0 {
+		return nil, nil
 	}
 
 	count := int(input.Count)
@@ -873,7 +896,8 @@ func (a *appleMusicAgent) GetArtistTopSongs(input metadata.TopSongsRequest) (*me
 	}
 
 	if len(songs) == 0 {
-		return nil, errors.New("no top songs found")
+		pdk.Log(pdk.LogDebug, "no top songs found for: "+input.Name)
+		return nil, nil
 	}
 
 	result := &metadata.TopSongsResponse{Songs: songs}
@@ -896,6 +920,10 @@ func (a *appleMusicAgent) GetAlbumImages(input metadata.AlbumRequest) (*metadata
 	artworkURL, err := resolveAlbumArtwork(input.Name, input.Artist)
 	if err != nil {
 		return nil, err
+	}
+	if artworkURL == "" {
+		pdk.Log(pdk.LogDebug, fmt.Sprintf("no album artwork found for '%s' by '%s'", input.Name, input.Artist))
+		return nil, nil
 	}
 
 	return &metadata.AlbumImagesResponse{Images: buildImageList(artworkURL)}, nil
