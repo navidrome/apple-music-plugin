@@ -319,11 +319,33 @@ func findBestArtistMatch(query string, results []itunesArtistResult) *itunesArti
 	return firstArtist
 }
 
+// albumSuffixes are common iTunes collection name suffixes stripped during fuzzy matching.
+var albumSuffixes = []string{
+	" - single",
+	" - ep",
+	" (deluxe edition)",
+	" (deluxe)",
+	" (deluxe version)",
+}
+
+// stripAlbumSuffix removes common iTunes suffixes from a normalized collection name.
+func stripAlbumSuffix(name string) string {
+	for _, suffix := range albumSuffixes {
+		if stripped, ok := strings.CutSuffix(name, suffix); ok {
+			return stripped
+		}
+	}
+	return name
+}
+
 // findBestAlbumMatch finds an album matching both name and artist from search results.
-// Returns nil if no exact match is found (case-insensitive).
+// First tries exact match on collection name, then falls back to matching after
+// stripping common iTunes suffixes (e.g., " - Single", " - EP", " (Deluxe)").
 func findBestAlbumMatch(albumName, artistName string, results []itunesAlbumResult) *itunesAlbumResult {
 	normalizedAlbum := normalizeName(albumName)
 	normalizedArtist := normalizeName(artistName)
+
+	// Pass 1: exact match
 	for i := range results {
 		if results[i].WrapperType != "collection" {
 			continue
@@ -333,6 +355,23 @@ func findBestAlbumMatch(albumName, artistName string, results []itunesAlbumResul
 			return &results[i]
 		}
 	}
+
+	// Pass 2: match after stripping common suffixes from iTunes collection name,
+	// and also try stripping suffixes from the input album name
+	strippedAlbum := stripAlbumSuffix(normalizedAlbum)
+	for i := range results {
+		if results[i].WrapperType != "collection" {
+			continue
+		}
+		if normalizeName(results[i].ArtistName) != normalizedArtist {
+			continue
+		}
+		strippedCollection := stripAlbumSuffix(normalizeName(results[i].CollectionName))
+		if strippedCollection == normalizedAlbum || strippedCollection == strippedAlbum {
+			return &results[i]
+		}
+	}
+
 	return nil
 }
 

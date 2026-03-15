@@ -280,6 +280,49 @@ var _ = Describe("appleMusicAgent", func() {
 			match := findBestAlbumMatch("1989", "Taylor Swift", nil)
 			Expect(match).To(BeNil())
 		})
+
+		It("matches after stripping '- Single' suffix from iTunes name", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "Versions - Single", ArtistName: "Thievery Corporation", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("Versions", "Thievery Corporation", results)
+			Expect(match).ToNot(BeNil())
+			Expect(match.CollectionName).To(Equal("Versions - Single"))
+		})
+
+		It("matches after stripping '- EP' suffix from iTunes name", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "My Album - EP", ArtistName: "Artist", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("My Album", "Artist", results)
+			Expect(match).ToNot(BeNil())
+		})
+
+		It("matches after stripping '(Deluxe Edition)' suffix", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "1989 (Deluxe Edition)", ArtistName: "Taylor Swift", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("1989", "Taylor Swift", results)
+			Expect(match).ToNot(BeNil())
+		})
+
+		It("prefers exact match over suffix-stripped match", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "1989 (Deluxe Edition)", ArtistName: "Taylor Swift", ArtworkURL100: "https://deluxe.jpg"},
+				{WrapperType: "collection", CollectionName: "1989", ArtistName: "Taylor Swift", ArtworkURL100: "https://exact.jpg"},
+			}
+			match := findBestAlbumMatch("1989", "Taylor Swift", results)
+			Expect(match).ToNot(BeNil())
+			Expect(match.ArtworkURL100).To(Equal("https://exact.jpg"))
+		})
+
+		It("matches when input album name also has a suffix", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "Versions - Single", ArtistName: "Artist", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("Versions - Single", "Artist", results)
+			Expect(match).ToNot(BeNil())
+		})
 	})
 
 	Describe("resolveArtistID", func() {
