@@ -59,7 +59,7 @@ Access the plugin configuration in Navidrome: **Settings > Plugins > Apple Music
 - **Note**: Artist ID mappings are cached permanently since they don't change. "Not found" results (artists or albums with no match) are cached for 2 hours to avoid repeated API calls
 
 #### Capabilities
-- **Default**: All enabled
+- **Default**: All enabled except Album Images
 - **What it is**: Each capability (Artist URL, Artist Biography, Artist Images, Similar Artists, Top Songs, Album Images) can be individually toggled on or off. When disabled, the plugin will skip that capability and Navidrome will fall through to the next configured agent.
 
 ## How It Works

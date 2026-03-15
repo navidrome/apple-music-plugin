@@ -49,7 +49,7 @@
         "enable_album_images": {
           "type": "boolean",
           "title": "Album Images",
-          "default": true
+          "default": false
         }
       }
     },
