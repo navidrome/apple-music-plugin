@@ -330,8 +330,8 @@ func findBestArtistMatch(query string, results []itunesArtistResult) *itunesArti
 // from metadata decorations (e.g., remaster info, edition, format).
 var baseNameDelimiters = []string{" (", " [", " - ", ": "}
 
-// extractBaseName extracts the core album title by truncating at the first
-// delimiter that separates it from metadata decorations.
+// extractBaseName extracts the core album title by truncating at each known
+// delimiter type that separates it from metadata decorations.
 // e.g., "The Dark Side of the Moon (50th Anniversary) [Remastered]" → "the dark side of the moon"
 // e.g., "Versions - Single" → "versions"
 func extractBaseName(normalized string) string {

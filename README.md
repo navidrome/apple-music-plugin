@@ -75,7 +75,7 @@ The plugin implements six metadata provider capabilities:
 | **GetArtistImages**    | Retrieves artist images in three sizes                         |
 | **GetSimilarArtists**  | Discovers similar artists from the Apple Music artist page     |
 | **GetArtistTopSongs**  | Fetches popular tracks via the iTunes Lookup API               |
-| **GetAlbumImages**     | Retrieves album artwork in three sizes via iTunes Search API   |
+| **GetAlbumImages**     | Retrieves album artwork in three sizes via iTunes Lookup API   |
 
 ### Host Services
 
@@ -91,7 +91,7 @@ The plugin implements six metadata provider capabilities:
 1. **Artist lookup** — Searches the iTunes API by artist name and caches the Apple Music artist ID
 2. **Page fetch** — Fetches the Apple Music artist page for the configured country
 3. **Data extraction** — Parses JSON-LD structured data and HTML for biography, images, and similar artists
-4. **Album lookup** — Searches the iTunes API by artist name + album name to find album artwork
+4. **Album lookup** — Resolves the artist ID via iTunes Search, then fetches albums by artist ID via the iTunes Lookup API to find album artwork
 5. **Country fallback** — If the requested field is empty, tries the next configured country
 6. **Caching** — Stores results in KVStore with configurable TTL; caches "not found" results with a 2-hour TTL to avoid repeated lookups
 
@@ -99,8 +99,8 @@ The plugin implements six metadata provider capabilities:
 
 | Source            | URL                                       | Data                               |
 |-------------------|-------------------------------------------|------------------------------------|
-| iTunes Search API | `itunes.apple.com/search`                 | Artist ID resolution, album artwork|
-| iTunes Lookup API | `itunes.apple.com/lookup`                 | Top songs                          |
+| iTunes Search API | `itunes.apple.com/search`                 | Artist ID resolution               |
+| iTunes Lookup API | `itunes.apple.com/lookup`                 | Top songs, album artwork           |
 | Apple Music Web   | `music.apple.com/{country}/artist/-/{id}` | Biography, images, similar artists |
 
 ### Files

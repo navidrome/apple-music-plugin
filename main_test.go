@@ -233,7 +233,7 @@ var _ = Describe("appleMusicAgent", func() {
 	})
 
 	Describe("findBestAlbumMatch", func() {
-		It("returns exact match on album name and artist name", func() {
+		It("returns exact match on album name", func() {
 			results := []itunesAlbumResult{
 				{WrapperType: "collection", CollectionName: "Other Album", ArtistName: "Taylor Swift", ArtworkURL100: "https://img1.jpg"},
 				{WrapperType: "collection", CollectionName: "1989", ArtistName: "Taylor Swift", ArtworkURL100: "https://img2.jpg"},
