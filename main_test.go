@@ -238,7 +238,7 @@ var _ = Describe("appleMusicAgent", func() {
 				{WrapperType: "collection", CollectionName: "Other Album", ArtistName: "Taylor Swift", ArtworkURL100: "https://img1.jpg"},
 				{WrapperType: "collection", CollectionName: "1989", ArtistName: "Taylor Swift", ArtworkURL100: "https://img2.jpg"},
 			}
-			match := findBestAlbumMatch("1989", "Taylor Swift", results)
+			match := findBestAlbumMatch("1989", results)
 			Expect(match).ToNot(BeNil())
 			Expect(match.ArtworkURL100).To(Equal("https://img2.jpg"))
 		})
@@ -247,24 +247,16 @@ var _ = Describe("appleMusicAgent", func() {
 			results := []itunesAlbumResult{
 				{WrapperType: "collection", CollectionName: "Midnights", ArtistName: "TAYLOR SWIFT", ArtworkURL100: "https://img.jpg"},
 			}
-			match := findBestAlbumMatch("midnights", "taylor swift", results)
+			match := findBestAlbumMatch("midnights", results)
 			Expect(match).ToNot(BeNil())
 			Expect(match.CollectionName).To(Equal("Midnights"))
 		})
 
-		It("returns nil when album name matches but artist does not", func() {
-			results := []itunesAlbumResult{
-				{WrapperType: "collection", CollectionName: "1989", ArtistName: "Wrong Artist", ArtworkURL100: "https://img.jpg"},
-			}
-			match := findBestAlbumMatch("1989", "Taylor Swift", results)
-			Expect(match).To(BeNil())
-		})
-
-		It("returns nil when artist matches but album does not", func() {
+		It("returns nil when album name does not match", func() {
 			results := []itunesAlbumResult{
 				{WrapperType: "collection", CollectionName: "Wrong Album", ArtistName: "Taylor Swift", ArtworkURL100: "https://img.jpg"},
 			}
-			match := findBestAlbumMatch("1989", "Taylor Swift", results)
+			match := findBestAlbumMatch("1989", results)
 			Expect(match).To(BeNil())
 		})
 
@@ -272,12 +264,12 @@ var _ = Describe("appleMusicAgent", func() {
 			results := []itunesAlbumResult{
 				{WrapperType: "artist", CollectionName: "1989", ArtistName: "Taylor Swift", ArtworkURL100: "https://img.jpg"},
 			}
-			match := findBestAlbumMatch("1989", "Taylor Swift", results)
+			match := findBestAlbumMatch("1989", results)
 			Expect(match).To(BeNil())
 		})
 
 		It("returns nil for empty results", func() {
-			match := findBestAlbumMatch("1989", "Taylor Swift", nil)
+			match := findBestAlbumMatch("1989", nil)
 			Expect(match).To(BeNil())
 		})
 
@@ -285,7 +277,7 @@ var _ = Describe("appleMusicAgent", func() {
 			results := []itunesAlbumResult{
 				{WrapperType: "collection", CollectionName: "Versions - Single", ArtistName: "Thievery Corporation", ArtworkURL100: "https://img.jpg"},
 			}
-			match := findBestAlbumMatch("Versions", "Thievery Corporation", results)
+			match := findBestAlbumMatch("Versions", results)
 			Expect(match).ToNot(BeNil())
 			Expect(match.CollectionName).To(Equal("Versions - Single"))
 		})
@@ -294,7 +286,7 @@ var _ = Describe("appleMusicAgent", func() {
 			results := []itunesAlbumResult{
 				{WrapperType: "collection", CollectionName: "1989 (Deluxe Edition)", ArtistName: "Taylor Swift", ArtworkURL100: "https://img.jpg"},
 			}
-			match := findBestAlbumMatch("1989", "Taylor Swift", results)
+			match := findBestAlbumMatch("1989", results)
 			Expect(match).ToNot(BeNil())
 		})
 
@@ -302,7 +294,7 @@ var _ = Describe("appleMusicAgent", func() {
 			results := []itunesAlbumResult{
 				{WrapperType: "collection", CollectionName: "The Dark Side of the Moon", ArtistName: "Pink Floyd", ArtworkURL100: "https://img.jpg"},
 			}
-			match := findBestAlbumMatch("The Dark Side of the Moon (2020) - 7.1 Multichannel", "Pink Floyd", results)
+			match := findBestAlbumMatch("The Dark Side of the Moon (2020) - 7.1 Multichannel", results)
 			Expect(match).ToNot(BeNil())
 		})
 
@@ -310,7 +302,7 @@ var _ = Describe("appleMusicAgent", func() {
 			results := []itunesAlbumResult{
 				{WrapperType: "collection", CollectionName: "The Dark Side of the Moon", ArtistName: "Pink Floyd", ArtworkURL100: "https://img.jpg"},
 			}
-			match := findBestAlbumMatch("Dark Side of the Moon", "Pink Floyd", results)
+			match := findBestAlbumMatch("Dark Side of the Moon", results)
 			Expect(match).ToNot(BeNil())
 		})
 
@@ -318,7 +310,7 @@ var _ = Describe("appleMusicAgent", func() {
 			results := []itunesAlbumResult{
 				{WrapperType: "collection", CollectionName: "Pink Floyd at Pompeii - MCMLXXII (2025 Mix)", ArtistName: "Pink Floyd", ArtworkURL100: "https://img.jpg"},
 			}
-			match := findBestAlbumMatch("Pink Floyd at Pompeii: MCMLXXII", "Pink Floyd", results)
+			match := findBestAlbumMatch("Pink Floyd at Pompeii: MCMLXXII", results)
 			Expect(match).ToNot(BeNil())
 		})
 
@@ -327,7 +319,7 @@ var _ = Describe("appleMusicAgent", func() {
 				{WrapperType: "collection", CollectionName: "1989 (Deluxe Edition)", ArtistName: "Taylor Swift", ArtworkURL100: "https://deluxe.jpg"},
 				{WrapperType: "collection", CollectionName: "1989", ArtistName: "Taylor Swift", ArtworkURL100: "https://exact.jpg"},
 			}
-			match := findBestAlbumMatch("1989", "Taylor Swift", results)
+			match := findBestAlbumMatch("1989", results)
 			Expect(match).ToNot(BeNil())
 			Expect(match.ArtworkURL100).To(Equal("https://exact.jpg"))
 		})
@@ -336,7 +328,7 @@ var _ = Describe("appleMusicAgent", func() {
 			results := []itunesAlbumResult{
 				{WrapperType: "collection", CollectionName: "The Wall", ArtistName: "Pink Floyd", ArtworkURL100: "https://img.jpg"},
 			}
-			match := findBestAlbumMatch("All", "Pink Floyd", results)
+			match := findBestAlbumMatch("All", results)
 			Expect(match).To(BeNil())
 		})
 	})

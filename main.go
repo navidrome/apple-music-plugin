@@ -336,28 +336,26 @@ func extractBaseName(normalized string) string {
 	return strings.TrimSpace(normalized)
 }
 
-// findBestAlbumMatch finds an album matching both name and artist from search results.
+// findBestAlbumMatch finds an album matching by name from lookup results.
+// Results are assumed to be pre-filtered by artist (via Lookup API by artist ID),
+// so no artist name check is performed.
 // Uses a multi-pass strategy with decreasing strictness:
 //   - Pass 1: exact match on full collection name
 //   - Pass 2: exact match on base names (after stripping parenthetical/bracket/dash decorations)
 //   - Pass 3: containment match on base names (one contains the other)
-func findBestAlbumMatch(albumName, artistName string, results []itunesAlbumResult) *itunesAlbumResult {
+func findBestAlbumMatch(albumName string, results []itunesAlbumResult) *itunesAlbumResult {
 	normalizedAlbum := normalizeName(albumName)
-	normalizedArtist := normalizeName(artistName)
 	baseAlbum := extractBaseName(normalizedAlbum)
 
-	// Filter to collections matching the artist
+	// Filter to collection entries
 	type candidate struct {
-		index              int
-		normalizedName     string
-		baseName           string
+		index          int
+		normalizedName string
+		baseName       string
 	}
 	var candidates []candidate
 	for i := range results {
 		if results[i].WrapperType != "collection" {
-			continue
-		}
-		if normalizeName(results[i].ArtistName) != normalizedArtist {
 			continue
 		}
 		cn := normalizeName(results[i].CollectionName)
@@ -446,7 +444,7 @@ func resolveAlbumArtwork(albumName, artistName string) (string, error) {
 	}
 
 	// Find exact match by album name (artist already matched via artist ID)
-	bestMatch := findBestAlbumMatch(albumName, artistName, lookupResp.Results)
+	bestMatch := findBestAlbumMatch(albumName, lookupResp.Results)
 	if bestMatch == nil {
 		// Cache negative result with short TTL
 		if err := kvSetWithTTL(cacheKey, cachedAlbumArtwork{ArtworkURL: ""}, negativeCacheTTLSeconds); err != nil {
