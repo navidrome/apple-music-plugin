@@ -11,8 +11,8 @@ It provides artist biographies, images, similar artists, top songs, and album ar
 ## Features
 
 - Fetches artist biographies from Apple Music pages
-- Retrieves artist images in multiple sizes (1000x1000, 600x600, 300x300)
-- Retrieves album artwork in multiple sizes (1000x1000, 600x600, 300x300)
+- Retrieves artist images in multiple sizes (1500x1500, 600x600, 300x300)
+- Retrieves album artwork in multiple sizes (1500x1500, 600x600, 300x300)
 - Discovers similar artists from Apple Music's artist pages
 - Fetches top songs via the iTunes Lookup API
 - Provides Apple Music artist page URLs

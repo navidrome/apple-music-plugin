@@ -538,7 +538,7 @@ func rewriteImageSize(imageURL string, size int) string {
 
 // buildImageList generates ImageInfo entries in multiple sizes from a base artwork URL.
 func buildImageList(baseURL string) []metadata.ImageInfo {
-	sizes := []int{1000, 600, 300}
+	sizes := []int{1500, 600, 300}
 	images := make([]metadata.ImageInfo, 0, len(sizes))
 	for _, size := range sizes {
 		images = append(images, metadata.ImageInfo{
