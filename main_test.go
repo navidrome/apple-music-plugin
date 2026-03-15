@@ -453,10 +453,11 @@ var _ = Describe("appleMusicAgent", func() {
 
 		It("looks up albums via artist ID on cache miss", func() {
 			host.KVStoreMock.On("Get", "album:taylor swift:1989").Return([]byte(nil), false, nil)
-			// Mock resolveArtistID (cache hit)
+			// Mock resolveArtistID (cache hit) + config for cache TTL
 			host.KVStoreMock.On("Get", "artist:taylor swift").Return(
 				mustMarshal(cachedArtistID{ArtistID: taylorSwiftID}), true, nil,
 			)
+			host.ConfigMock.On("Get", configCountries).Return("us", true).Maybe()
 			host.ConfigMock.On("GetInt", configCacheTTLDays).Return(int64(7), true)
 
 			lookupResp := itunesAlbumSearchResponse{
@@ -483,6 +484,7 @@ var _ = Describe("appleMusicAgent", func() {
 			host.KVStoreMock.On("Get", "artist:taylor swift").Return(
 				mustMarshal(cachedArtistID{ArtistID: taylorSwiftID}), true, nil,
 			)
+			host.ConfigMock.On("Get", configCountries).Return("us", true).Maybe()
 
 			lookupResp := itunesAlbumSearchResponse{
 				ResultCount: 2,
@@ -507,6 +509,7 @@ var _ = Describe("appleMusicAgent", func() {
 			host.KVStoreMock.On("Get", "artist:taylor swift").Return(
 				mustMarshal(cachedArtistID{ArtistID: taylorSwiftID}), true, nil,
 			)
+			host.ConfigMock.On("Get", configCountries).Return("us", true).Maybe()
 
 			lookupResp := itunesAlbumSearchResponse{ResultCount: 1, Results: []itunesAlbumResult{
 				{WrapperType: "artist", CollectionName: "", ArtistName: "Taylor Swift", ArtworkURL100: ""},
