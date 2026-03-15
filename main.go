@@ -14,14 +14,15 @@ import (
 )
 
 const (
-	userAgent         = "NavidromeAppleMusicPlugin/0.1"
-	defaultCountry    = "us"
-	defaultCacheTTL   = 7 // days
-	defaultTopSongs   = 10
-	httpTimeoutMs     = 10000
-	iTunesSearchURL   = "https://itunes.apple.com/search"
-	iTunesLookupURL   = "https://itunes.apple.com/lookup"
-	appleMusicBaseURL = "https://music.apple.com"
+	userAgent               = "NavidromeAppleMusicPlugin/0.1"
+	defaultCountry          = "us"
+	defaultCacheTTL         = 7 // days
+	defaultTopSongs         = 10
+	httpTimeoutMs           = 10000
+	negativeCacheTTLSeconds = 7200 // 2 hours
+	iTunesSearchURL         = "https://itunes.apple.com/search"
+	iTunesLookupURL         = "https://itunes.apple.com/lookup"
+	appleMusicBaseURL       = "https://music.apple.com"
 
 	// HTML parsing limits
 	similarSectionMaxBytes = 60000 // generous chunk after section marker to cover all artist lockups
@@ -35,6 +36,7 @@ const (
 	configArtistImages    = "enable_artist_images"
 	configSimilarArtists  = "enable_similar_artists"
 	configTopSongs        = "enable_top_songs"
+	configAlbumImages     = "enable_album_images"
 )
 
 // Compile-time interface assertions
@@ -44,6 +46,7 @@ var (
 	_ metadata.ArtistImagesProvider    = (*appleMusicAgent)(nil)
 	_ metadata.SimilarArtistsProvider  = (*appleMusicAgent)(nil)
 	_ metadata.ArtistTopSongsProvider  = (*appleMusicAgent)(nil)
+	_ metadata.AlbumImagesProvider     = (*appleMusicAgent)(nil)
 )
 
 func init() {
@@ -62,12 +65,9 @@ type itunesSearchResponse struct {
 }
 
 type itunesArtistResult struct {
-	WrapperType   string `json:"wrapperType"`
-	ArtistType    string `json:"artistType"`
-	ArtistName    string `json:"artistName"`
-	ArtistLinkURL string `json:"artistLinkUrl"`
-	ArtistID      int64  `json:"artistId"`
-	PrimaryGenre  string `json:"primaryGenreName"`
+	WrapperType string `json:"wrapperType"`
+	ArtistName  string `json:"artistName"`
+	ArtistID    int64  `json:"artistId"`
 }
 
 type itunesLookupResponse struct {
@@ -80,6 +80,18 @@ type itunesLookupResult struct {
 	ArtistName  string `json:"artistName"`
 	TrackName   string `json:"trackName"`
 	ArtistID    int64  `json:"artistId"`
+}
+
+type itunesAlbumSearchResponse struct {
+	ResultCount int                 `json:"resultCount"`
+	Results     []itunesAlbumResult `json:"results"`
+}
+
+type itunesAlbumResult struct {
+	WrapperType    string `json:"wrapperType"`
+	CollectionName string `json:"collectionName"`
+	ArtistName     string `json:"artistName"`
+	ArtworkURL100  string `json:"artworkUrl100"`
 }
 
 // --- Scraped page data ---
@@ -98,6 +110,10 @@ type similarArtistInfo struct {
 
 type cachedArtistID struct {
 	ArtistID int64 `json:"artistId"`
+}
+
+type cachedAlbumArtwork struct {
+	ArtworkURL string `json:"artworkUrl"`
 }
 
 // --- JSON-LD structure ---
@@ -153,7 +169,11 @@ func getCacheTTLSeconds() int64 {
 // kvGet retrieves and unmarshals a JSON value from KVStore.
 func kvGet(key string, target any) bool {
 	data, exists, err := host.KVStoreGet(key)
-	if err != nil || !exists {
+	if err != nil {
+		pdk.Log(pdk.LogWarn, "KVStore error for key "+key+": "+err.Error())
+		return false
+	}
+	if !exists {
 		return false
 	}
 	if err := json.Unmarshal(data, target); err != nil {
@@ -204,10 +224,25 @@ func httpGet(rawURL string) ([]byte, int32, error) {
 	return resp.Body, resp.StatusCode, nil
 }
 
+// httpGetJSON performs a GET request, checks for 200 status, and unmarshals the JSON response.
+func httpGetJSON(rawURL string, target any) error {
+	body, statusCode, err := httpGet(rawURL)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	if statusCode != 200 {
+		return fmt.Errorf("returned status %d", statusCode)
+	}
+	if err := json.Unmarshal(body, target); err != nil {
+		return fmt.Errorf("failed to parse response: %w", err)
+	}
+	return nil
+}
+
 // --- Name normalization ---
 
-// normalizeArtistName normalizes an artist name for cache key use.
-func normalizeArtistName(name string) string {
+// normalizeName normalizes an artist or album name for cache key use.
+func normalizeName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
 }
 
@@ -216,7 +251,7 @@ func normalizeArtistName(name string) string {
 // resolveArtistID looks up an Apple Music artist ID by name.
 // Uses KVStore cache for permanent storage of name→ID mappings.
 func resolveArtistID(artistName string) (int64, error) {
-	normalized := normalizeArtistName(artistName)
+	normalized := normalizeName(artistName)
 	if normalized == "" {
 		return 0, errors.New("empty artist name")
 	}
@@ -225,6 +260,10 @@ func resolveArtistID(artistName string) (int64, error) {
 	cacheKey := "artist:" + normalized
 	var cached cachedArtistID
 	if kvGet(cacheKey, &cached) {
+		if cached.ArtistID == 0 {
+			pdk.Log(pdk.LogDebug, "artist ID negative cache hit: "+normalized)
+			return 0, errors.New("no matching artist found")
+		}
 		pdk.Log(pdk.LogDebug, "artist ID cache hit: "+normalized)
 		return cached.ArtistID, nil
 	}
@@ -238,26 +277,24 @@ func resolveArtistID(artistName string) (int64, error) {
 
 	pdk.Log(pdk.LogDebug, "searching iTunes API: "+searchURL)
 
-	body, statusCode, err := httpGet(searchURL)
-	if err != nil {
-		return 0, fmt.Errorf("iTunes search failed: %w", err)
-	}
-	if statusCode != 200 {
-		return 0, fmt.Errorf("iTunes search returned status %d", statusCode)
-	}
-
 	var searchResp itunesSearchResponse
-	if err := json.Unmarshal(body, &searchResp); err != nil {
-		return 0, fmt.Errorf("failed to parse iTunes response: %w", err)
+	if err := httpGetJSON(searchURL, &searchResp); err != nil {
+		return 0, fmt.Errorf("iTunes artist search: %w", err)
 	}
 
 	if searchResp.ResultCount == 0 {
+		if err := kvSetWithTTL(cacheKey, cachedArtistID{ArtistID: 0}, negativeCacheTTLSeconds); err != nil {
+			pdk.Log(pdk.LogWarn, "failed to cache negative artist result: "+err.Error())
+		}
 		return 0, errors.New("no artist found")
 	}
 
 	// Find best match by name similarity
 	bestMatch := findBestArtistMatch(artistName, searchResp.Results)
 	if bestMatch == nil {
+		if err := kvSetWithTTL(cacheKey, cachedArtistID{ArtistID: 0}, negativeCacheTTLSeconds); err != nil {
+			pdk.Log(pdk.LogWarn, "failed to cache negative artist result: "+err.Error())
+		}
 		return 0, errors.New("no matching artist found")
 	}
 
@@ -273,7 +310,7 @@ func resolveArtistID(artistName string) (int64, error) {
 // findBestArtistMatch finds the best matching artist from search results.
 // Uses case-insensitive exact match first, then falls back to first result.
 func findBestArtistMatch(query string, results []itunesArtistResult) *itunesArtistResult {
-	normalized := normalizeArtistName(query)
+	normalized := normalizeName(query)
 	var firstArtist *itunesArtistResult
 	for i := range results {
 		if results[i].WrapperType != "artist" {
@@ -282,11 +319,151 @@ func findBestArtistMatch(query string, results []itunesArtistResult) *itunesArti
 		if firstArtist == nil {
 			firstArtist = &results[i]
 		}
-		if normalizeArtistName(results[i].ArtistName) == normalized {
+		if normalizeName(results[i].ArtistName) == normalized {
 			return &results[i]
 		}
 	}
 	return firstArtist
+}
+
+// baseNameDelimiters are characters that typically separate the core album title
+// from metadata decorations (e.g., remaster info, edition, format).
+var baseNameDelimiters = []string{" (", " [", " - ", ": "}
+
+// extractBaseName extracts the core album title by truncating at each known
+// delimiter type that separates it from metadata decorations.
+// e.g., "The Dark Side of the Moon (50th Anniversary) [Remastered]" → "the dark side of the moon"
+// e.g., "Versions - Single" → "versions"
+func extractBaseName(normalized string) string {
+	for _, delim := range baseNameDelimiters {
+		if idx := strings.Index(normalized, delim); idx > 0 {
+			normalized = normalized[:idx]
+		}
+	}
+	return strings.TrimSpace(normalized)
+}
+
+// findBestAlbumMatch finds an album matching by name from lookup results.
+// Results are assumed to be pre-filtered by artist (via Lookup API by artist ID),
+// so no artist name check is performed.
+// Uses a multi-pass strategy with decreasing strictness:
+//   - Pass 1: exact match on full collection name
+//   - Pass 2: exact match on base names (after stripping parenthetical/bracket/dash decorations)
+//   - Pass 3: containment match on base names (one contains the other)
+func findBestAlbumMatch(albumName string, results []itunesAlbumResult) *itunesAlbumResult {
+	normalizedAlbum := normalizeName(albumName)
+	baseAlbum := extractBaseName(normalizedAlbum)
+
+	// Filter to collection entries
+	type candidate struct {
+		index          int
+		normalizedName string
+		baseName       string
+	}
+	var candidates []candidate
+	for i := range results {
+		if results[i].WrapperType != "collection" {
+			continue
+		}
+		cn := normalizeName(results[i].CollectionName)
+		candidates = append(candidates, candidate{
+			index:          i,
+			normalizedName: cn,
+			baseName:       extractBaseName(cn),
+		})
+	}
+
+	// Pass 1: exact match on full name
+	for _, c := range candidates {
+		if c.normalizedName == normalizedAlbum {
+			return &results[c.index]
+		}
+	}
+
+	// Pass 2: exact match on base names
+	for _, c := range candidates {
+		if c.baseName == baseAlbum {
+			return &results[c.index]
+		}
+	}
+
+	// Pass 3: containment — one base name contains the other.
+	// Require the shorter name to be at least 4 characters to avoid false positives.
+	if len(baseAlbum) >= 4 {
+		for _, c := range candidates {
+			if len(c.baseName) >= 4 &&
+				(strings.Contains(c.baseName, baseAlbum) || strings.Contains(baseAlbum, c.baseName)) {
+				return &results[c.index]
+			}
+		}
+	}
+
+	return nil
+}
+
+// resolveAlbumArtwork looks up album artwork URL via the iTunes Lookup API.
+// Uses the artist ID to fetch all albums, then matches by album name.
+// Uses KVStore cache with TTL. Caches "not found" with a shorter negative TTL.
+func resolveAlbumArtwork(albumName, artistName string) (string, error) {
+	normalizedAlbum := normalizeName(albumName)
+	normalizedArtist := normalizeName(artistName)
+	if normalizedAlbum == "" {
+		return "", errors.New("empty album name")
+	}
+	if normalizedArtist == "" {
+		return "", errors.New("empty artist name")
+	}
+
+	// Check cache
+	cacheKey := fmt.Sprintf("album:%s:%s", normalizedArtist, normalizedAlbum)
+	var cached cachedAlbumArtwork
+	if kvGet(cacheKey, &cached) {
+		if cached.ArtworkURL == "" {
+			pdk.Log(pdk.LogDebug, "album artwork negative cache hit: "+cacheKey)
+			return "", errors.New("no matching album found")
+		}
+		pdk.Log(pdk.LogDebug, "album artwork cache hit: "+cacheKey)
+		return cached.ArtworkURL, nil
+	}
+
+	// Resolve artist ID first
+	artistID, err := resolveArtistID(artistName)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve artist for album lookup: %w", err)
+	}
+
+	// Look up all albums by artist ID via the iTunes Lookup API
+	lookupURL := fmt.Sprintf("%s?id=%d&entity=album&limit=200", iTunesLookupURL, artistID)
+
+	pdk.Log(pdk.LogDebug, "looking up albums for artist: "+lookupURL)
+
+	var lookupResp itunesAlbumSearchResponse
+	if err := httpGetJSON(lookupURL, &lookupResp); err != nil {
+		return "", fmt.Errorf("iTunes album lookup: %w", err)
+	}
+
+	// Find match by album name (artist already matched via artist ID)
+	bestMatch := findBestAlbumMatch(albumName, lookupResp.Results)
+
+	var artworkURL string
+	if bestMatch != nil {
+		artworkURL = bestMatch.ArtworkURL100
+	}
+	if artworkURL == "" {
+		if err := kvSetWithTTL(cacheKey, cachedAlbumArtwork{ArtworkURL: ""}, negativeCacheTTLSeconds); err != nil {
+			pdk.Log(pdk.LogWarn, "failed to cache negative album result: "+err.Error())
+		}
+		return "", errors.New("no matching album found")
+	}
+
+	// Cache with standard TTL
+	ttl := getCacheTTLSeconds()
+	if err := kvSetWithTTL(cacheKey, cachedAlbumArtwork{ArtworkURL: artworkURL}, ttl); err != nil {
+		pdk.Log(pdk.LogWarn, "failed to cache album artwork: "+err.Error())
+	}
+
+	pdk.Log(pdk.LogInfo, fmt.Sprintf("resolved album '%s' by '%s' → artwork URL", albumName, artistName))
+	return artworkURL, nil
 }
 
 // --- HTML parsing helpers ---
@@ -342,6 +519,19 @@ var imageURLRegex = regexp.MustCompile(`/\d+x\d+[a-z]*\.`)
 // rewriteImageSize rewrites an Apple mzstatic.com image URL to the given size.
 func rewriteImageSize(imageURL string, size int) string {
 	return imageURLRegex.ReplaceAllString(imageURL, fmt.Sprintf("/%dx%dbb.", size, size))
+}
+
+// buildImageList generates ImageInfo entries in multiple sizes from a base artwork URL.
+func buildImageList(baseURL string) []metadata.ImageInfo {
+	sizes := []int{1000, 600, 300}
+	images := make([]metadata.ImageInfo, 0, len(sizes))
+	for _, size := range sizes {
+		images = append(images, metadata.ImageInfo{
+			URL:  rewriteImageSize(baseURL, size),
+			Size: int32(size),
+		})
+	}
+	return images
 }
 
 // similarSectionMarkers contains localized aria-label values for the "Similar Artists" section.
@@ -478,6 +668,7 @@ func fetchArtistPage(artistID int64, wantField pageField) (*parsedPageData, erro
 }
 
 // parsePage extracts all metadata from an Apple Music artist HTML page.
+// Always parses all fields so the cached result is complete for any future capability request.
 func parsePage(html string) *parsedPageData {
 	page := &parsedPageData{}
 
@@ -506,6 +697,7 @@ func parsePage(html string) *parsedPageData {
 
 	// Parse similar artists
 	page.SimilarArtists = parseSimilarArtists(html)
+
 	pdk.Log(pdk.LogDebug, fmt.Sprintf("parsed page result: bio=%d chars, image=%v, similar=%d",
 		len(page.Biography), page.ImageURL != "", len(page.SimilarArtists)))
 
@@ -550,22 +742,18 @@ func (a *appleMusicAgent) GetArtistBiography(input metadata.ArtistRequest) (*met
 	}
 	artistID, err := resolveArtistID(input.Name)
 	if err != nil {
-		pdk.Log(pdk.LogWarn, "GetArtistBiography: resolve failed: "+err.Error())
 		return nil, err
 	}
 
 	page, err := fetchArtistPage(artistID, fieldBiography)
 	if err != nil {
-		pdk.Log(pdk.LogWarn, "GetArtistBiography: fetchArtistPage failed: "+err.Error())
 		return nil, err
 	}
 
 	if page.Biography == "" {
-		pdk.Log(pdk.LogDebug, "GetArtistBiography: no biography found in any country page")
 		return nil, errors.New("no biography found")
 	}
 
-	pdk.Log(pdk.LogDebug, fmt.Sprintf("GetArtistBiography: returning biography (%d chars)", len(page.Biography)))
 	return &metadata.ArtistBiographyResponse{Biography: page.Biography}, nil
 }
 
@@ -588,17 +776,7 @@ func (a *appleMusicAgent) GetArtistImages(input metadata.ArtistRequest) (*metada
 		return nil, errors.New("no artist image found")
 	}
 
-	// Generate multiple sizes from the base image URL
-	sizes := []int{1000, 600, 300}
-	images := make([]metadata.ImageInfo, 0, len(sizes))
-	for _, size := range sizes {
-		images = append(images, metadata.ImageInfo{
-			URL:  rewriteImageSize(page.ImageURL, size),
-			Size: int32(size),
-		})
-	}
-
-	return &metadata.ArtistImagesResponse{Images: images}, nil
+	return &metadata.ArtistImagesResponse{Images: buildImageList(page.ImageURL)}, nil
 }
 
 // GetSimilarArtists returns similar artists scraped from the Apple Music page.
@@ -608,21 +786,17 @@ func (a *appleMusicAgent) GetSimilarArtists(input metadata.SimilarArtistsRequest
 	}
 	artistID, err := resolveArtistID(input.Name)
 	if err != nil {
-		pdk.Log(pdk.LogWarn, "GetSimilarArtists: resolve failed: "+err.Error())
 		return nil, err
 	}
 
 	page, err := fetchArtistPage(artistID, fieldSimilar)
 	if err != nil {
-		pdk.Log(pdk.LogWarn, "GetSimilarArtists: fetchArtistPage failed: "+err.Error())
 		return nil, err
 	}
 
 	if len(page.SimilarArtists) == 0 {
-		pdk.Log(pdk.LogDebug, "GetSimilarArtists: no similar artists found in any country page")
 		return nil, errors.New("no similar artists found")
 	}
-	pdk.Log(pdk.LogDebug, fmt.Sprintf("GetSimilarArtists: found %d similar artists", len(page.SimilarArtists)))
 
 	limit := clampLimit(int(input.Limit), len(page.SimilarArtists))
 
@@ -665,17 +839,9 @@ func (a *appleMusicAgent) GetArtistTopSongs(input metadata.TopSongsRequest) (*me
 
 	pdk.Log(pdk.LogDebug, "fetching top songs: "+lookupURL)
 
-	body, statusCode, err := httpGet(lookupURL)
-	if err != nil {
-		return nil, fmt.Errorf("iTunes lookup failed: %w", err)
-	}
-	if statusCode != 200 {
-		return nil, fmt.Errorf("iTunes lookup returned status %d", statusCode)
-	}
-
 	var lookupResp itunesLookupResponse
-	if err := json.Unmarshal(body, &lookupResp); err != nil {
-		return nil, fmt.Errorf("failed to parse iTunes lookup response: %w", err)
+	if err := httpGetJSON(lookupURL, &lookupResp); err != nil {
+		return nil, fmt.Errorf("iTunes top songs lookup: %w", err)
 	}
 
 	// First result is the artist itself, skip it
@@ -702,4 +868,18 @@ func (a *appleMusicAgent) GetArtistTopSongs(input metadata.TopSongsRequest) (*me
 	}
 
 	return result, nil
+}
+
+// GetAlbumImages returns album artwork from Apple Music in multiple sizes.
+func (a *appleMusicAgent) GetAlbumImages(input metadata.AlbumRequest) (*metadata.AlbumImagesResponse, error) {
+	if !isEnabled(configAlbumImages) {
+		return nil, nil
+	}
+
+	artworkURL, err := resolveAlbumArtwork(input.Name, input.Artist)
+	if err != nil {
+		return nil, err
+	}
+
+	return &metadata.AlbumImagesResponse{Images: buildImageList(artworkURL)}, nil
 }

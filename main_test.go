@@ -48,6 +48,7 @@ var _ = Describe("appleMusicAgent", func() {
 		host.ConfigMock.On("Get", configArtistImages).Return("", false).Maybe()
 		host.ConfigMock.On("Get", configSimilarArtists).Return("", false).Maybe()
 		host.ConfigMock.On("Get", configTopSongs).Return("", false).Maybe()
+		host.ConfigMock.On("Get", configAlbumImages).Return("", false).Maybe()
 	})
 
 	Describe("getCountries", func() {
@@ -122,13 +123,13 @@ var _ = Describe("appleMusicAgent", func() {
 		})
 	})
 
-	Describe("normalizeArtistName", func() {
+	Describe("normalizeName", func() {
 		It("lowercases and trims", func() {
-			Expect(normalizeArtistName("  Taylor Swift  ")).To(Equal("taylor swift"))
+			Expect(normalizeName("  Taylor Swift  ")).To(Equal("taylor swift"))
 		})
 
 		It("handles empty string", func() {
-			Expect(normalizeArtistName("")).To(Equal(""))
+			Expect(normalizeName("")).To(Equal(""))
 		})
 	})
 
@@ -231,6 +232,107 @@ var _ = Describe("appleMusicAgent", func() {
 		})
 	})
 
+	Describe("findBestAlbumMatch", func() {
+		It("returns exact match on album name", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "Other Album", ArtistName: "Taylor Swift", ArtworkURL100: "https://img1.jpg"},
+				{WrapperType: "collection", CollectionName: "1989", ArtistName: "Taylor Swift", ArtworkURL100: "https://img2.jpg"},
+			}
+			match := findBestAlbumMatch("1989", results)
+			Expect(match).ToNot(BeNil())
+			Expect(match.ArtworkURL100).To(Equal("https://img2.jpg"))
+		})
+
+		It("matches case-insensitively", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "Midnights", ArtistName: "TAYLOR SWIFT", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("midnights", results)
+			Expect(match).ToNot(BeNil())
+			Expect(match.CollectionName).To(Equal("Midnights"))
+		})
+
+		It("returns nil when album name does not match", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "Wrong Album", ArtistName: "Taylor Swift", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("1989", results)
+			Expect(match).To(BeNil())
+		})
+
+		It("skips non-collection results", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "artist", CollectionName: "1989", ArtistName: "Taylor Swift", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("1989", results)
+			Expect(match).To(BeNil())
+		})
+
+		It("returns nil for empty results", func() {
+			match := findBestAlbumMatch("1989", nil)
+			Expect(match).To(BeNil())
+		})
+
+		It("matches by base name when iTunes adds ' - Single' suffix", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "Versions - Single", ArtistName: "Thievery Corporation", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("Versions", results)
+			Expect(match).ToNot(BeNil())
+			Expect(match.CollectionName).To(Equal("Versions - Single"))
+		})
+
+		It("matches by base name when iTunes adds '(Deluxe Edition)'", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "1989 (Deluxe Edition)", ArtistName: "Taylor Swift", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("1989", results)
+			Expect(match).ToNot(BeNil())
+		})
+
+		It("matches by base name when input has decorations", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "The Dark Side of the Moon", ArtistName: "Pink Floyd", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("The Dark Side of the Moon (2020) - 7.1 Multichannel", results)
+			Expect(match).ToNot(BeNil())
+		})
+
+		It("matches by containment when base names differ slightly", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "The Dark Side of the Moon", ArtistName: "Pink Floyd", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("Dark Side of the Moon", results)
+			Expect(match).ToNot(BeNil())
+		})
+
+		It("matches by containment for Pompeii-style names", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "Pink Floyd at Pompeii - MCMLXXII (2025 Mix)", ArtistName: "Pink Floyd", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("Pink Floyd at Pompeii: MCMLXXII", results)
+			Expect(match).ToNot(BeNil())
+		})
+
+		It("prefers exact match over base-name match", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "1989 (Deluxe Edition)", ArtistName: "Taylor Swift", ArtworkURL100: "https://deluxe.jpg"},
+				{WrapperType: "collection", CollectionName: "1989", ArtistName: "Taylor Swift", ArtworkURL100: "https://exact.jpg"},
+			}
+			match := findBestAlbumMatch("1989", results)
+			Expect(match).ToNot(BeNil())
+			Expect(match.ArtworkURL100).To(Equal("https://exact.jpg"))
+		})
+
+		It("does not match by containment when base name is too short", func() {
+			results := []itunesAlbumResult{
+				{WrapperType: "collection", CollectionName: "The Wall", ArtistName: "Pink Floyd", ArtworkURL100: "https://img.jpg"},
+			}
+			match := findBestAlbumMatch("All", results)
+			Expect(match).To(BeNil())
+		})
+	})
+
 	Describe("resolveArtistID", func() {
 		It("returns cached artist ID", func() {
 			data := mustMarshal(cachedArtistID{ArtistID: taylorSwiftID})
@@ -270,6 +372,14 @@ var _ = Describe("appleMusicAgent", func() {
 			Expect(err).To(MatchError("empty artist name"))
 		})
 
+		It("returns error on negative cache hit (ArtistID == 0)", func() {
+			data := mustMarshal(cachedArtistID{ArtistID: 0})
+			host.KVStoreMock.On("Get", "artist:unknown artist").Return(data, true, nil)
+
+			_, err := resolveArtistID("Unknown Artist")
+			Expect(err).To(MatchError("no matching artist found"))
+		})
+
 		It("returns error when no results found", func() {
 			host.KVStoreMock.On("Get", "artist:unknown").Return([]byte(nil), false, nil)
 			host.ConfigMock.On("Get", configCountries).Return("us", true)
@@ -278,8 +388,150 @@ var _ = Describe("appleMusicAgent", func() {
 			respBody := mustMarshal(searchResp)
 			host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
 
+			// Expect negative cache write
+			host.KVStoreMock.On("SetWithTTL", "artist:unknown", mock.Anything, int64(negativeCacheTTLSeconds)).Return(nil)
+
 			_, err := resolveArtistID("Unknown")
 			Expect(err).To(MatchError("no artist found"))
+		})
+
+		It("caches negative result when no results found", func() {
+			host.KVStoreMock.On("Get", "artist:unknown").Return([]byte(nil), false, nil)
+			host.ConfigMock.On("Get", configCountries).Return("us", true)
+
+			searchResp := itunesSearchResponse{ResultCount: 0, Results: nil}
+			respBody := mustMarshal(searchResp)
+			host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
+
+			negativeCacheData := mustMarshal(cachedArtistID{ArtistID: 0})
+			host.KVStoreMock.On("SetWithTTL", "artist:unknown", negativeCacheData, int64(negativeCacheTTLSeconds)).Return(nil)
+
+			_, err := resolveArtistID("Unknown")
+			Expect(err).To(HaveOccurred())
+			host.KVStoreMock.AssertCalled(GinkgoT(), "SetWithTTL", "artist:unknown", negativeCacheData, int64(negativeCacheTTLSeconds))
+		})
+
+		It("caches negative result when no matching artist found", func() {
+			host.KVStoreMock.On("Get", "artist:unknown").Return([]byte(nil), false, nil)
+			host.ConfigMock.On("Get", configCountries).Return("us", true)
+
+			searchResp := itunesSearchResponse{
+				ResultCount: 1,
+				Results: []itunesArtistResult{
+					{WrapperType: "collection", ArtistName: "Not An Artist", ArtistID: 1},
+				},
+			}
+			respBody := mustMarshal(searchResp)
+			host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
+
+			negativeCacheData := mustMarshal(cachedArtistID{ArtistID: 0})
+			host.KVStoreMock.On("SetWithTTL", "artist:unknown", negativeCacheData, int64(negativeCacheTTLSeconds)).Return(nil)
+
+			_, err := resolveArtistID("Unknown")
+			Expect(err).To(MatchError("no matching artist found"))
+			host.KVStoreMock.AssertCalled(GinkgoT(), "SetWithTTL", "artist:unknown", negativeCacheData, int64(negativeCacheTTLSeconds))
+		})
+	})
+
+	Describe("resolveAlbumArtwork", func() {
+		It("returns cached artwork URL", func() {
+			data := mustMarshal(cachedAlbumArtwork{ArtworkURL: "https://cached.jpg"})
+			host.KVStoreMock.On("Get", "album:taylor swift:1989").Return(data, true, nil)
+
+			url, err := resolveAlbumArtwork("1989", "Taylor Swift")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(url).To(Equal("https://cached.jpg"))
+		})
+
+		It("returns error on negative cache hit", func() {
+			data := mustMarshal(cachedAlbumArtwork{ArtworkURL: ""})
+			host.KVStoreMock.On("Get", "album:taylor swift:1989").Return(data, true, nil)
+
+			_, err := resolveAlbumArtwork("1989", "Taylor Swift")
+			Expect(err).To(MatchError("no matching album found"))
+		})
+
+		It("looks up albums via artist ID on cache miss", func() {
+			host.KVStoreMock.On("Get", "album:taylor swift:1989").Return([]byte(nil), false, nil)
+			// Mock resolveArtistID (cache hit) + config for cache TTL
+			host.KVStoreMock.On("Get", "artist:taylor swift").Return(
+				mustMarshal(cachedArtistID{ArtistID: taylorSwiftID}), true, nil,
+			)
+			host.ConfigMock.On("Get", configCountries).Return("us", true).Maybe()
+			host.ConfigMock.On("GetInt", configCacheTTLDays).Return(int64(7), true)
+
+			lookupResp := itunesAlbumSearchResponse{
+				ResultCount: 2,
+				Results: []itunesAlbumResult{
+					{WrapperType: "artist", CollectionName: "", ArtistName: "Taylor Swift", ArtworkURL100: ""},
+					{WrapperType: "collection", CollectionName: "1989", ArtistName: "Taylor Swift", ArtworkURL100: "https://is1-ssl.mzstatic.com/image/thumb/Music/100x100bb.jpg"},
+				},
+			}
+			respBody := mustMarshal(lookupResp)
+			host.HTTPMock.On("Send", mock.MatchedBy(func(req host.HTTPRequest) bool {
+				return req.Method == "GET" && strings.Contains(req.URL, "itunes.apple.com/lookup") && strings.Contains(req.URL, "entity=album")
+			})).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
+
+			host.KVStoreMock.On("SetWithTTL", "album:taylor swift:1989", mock.Anything, int64(7*24*60*60)).Return(nil)
+
+			url, err := resolveAlbumArtwork("1989", "Taylor Swift")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(url).To(Equal("https://is1-ssl.mzstatic.com/image/thumb/Music/100x100bb.jpg"))
+		})
+
+		It("caches negative result when no album matches", func() {
+			host.KVStoreMock.On("Get", "album:taylor swift:unknown album").Return([]byte(nil), false, nil)
+			host.KVStoreMock.On("Get", "artist:taylor swift").Return(
+				mustMarshal(cachedArtistID{ArtistID: taylorSwiftID}), true, nil,
+			)
+			host.ConfigMock.On("Get", configCountries).Return("us", true).Maybe()
+
+			lookupResp := itunesAlbumSearchResponse{
+				ResultCount: 2,
+				Results: []itunesAlbumResult{
+					{WrapperType: "artist", CollectionName: "", ArtistName: "Taylor Swift", ArtworkURL100: ""},
+					{WrapperType: "collection", CollectionName: "Different Album", ArtistName: "Taylor Swift", ArtworkURL100: "https://img.jpg"},
+				},
+			}
+			respBody := mustMarshal(lookupResp)
+			host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
+
+			negativeCacheData := mustMarshal(cachedAlbumArtwork{ArtworkURL: ""})
+			host.KVStoreMock.On("SetWithTTL", "album:taylor swift:unknown album", negativeCacheData, int64(negativeCacheTTLSeconds)).Return(nil)
+
+			_, err := resolveAlbumArtwork("Unknown Album", "Taylor Swift")
+			Expect(err).To(MatchError("no matching album found"))
+			host.KVStoreMock.AssertCalled(GinkgoT(), "SetWithTTL", "album:taylor swift:unknown album", negativeCacheData, int64(negativeCacheTTLSeconds))
+		})
+
+		It("caches negative result when zero albums returned", func() {
+			host.KVStoreMock.On("Get", "album:taylor swift:nope").Return([]byte(nil), false, nil)
+			host.KVStoreMock.On("Get", "artist:taylor swift").Return(
+				mustMarshal(cachedArtistID{ArtistID: taylorSwiftID}), true, nil,
+			)
+			host.ConfigMock.On("Get", configCountries).Return("us", true).Maybe()
+
+			lookupResp := itunesAlbumSearchResponse{ResultCount: 1, Results: []itunesAlbumResult{
+				{WrapperType: "artist", CollectionName: "", ArtistName: "Taylor Swift", ArtworkURL100: ""},
+			}}
+			respBody := mustMarshal(lookupResp)
+			host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
+
+			negativeCacheData := mustMarshal(cachedAlbumArtwork{ArtworkURL: ""})
+			host.KVStoreMock.On("SetWithTTL", "album:taylor swift:nope", negativeCacheData, int64(negativeCacheTTLSeconds)).Return(nil)
+
+			_, err := resolveAlbumArtwork("Nope", "Taylor Swift")
+			Expect(err).To(MatchError("no matching album found"))
+		})
+
+		It("returns error on empty album name", func() {
+			_, err := resolveAlbumArtwork("", "Taylor Swift")
+			Expect(err).To(MatchError("empty album name"))
+		})
+
+		It("returns error on empty artist name", func() {
+			_, err := resolveAlbumArtwork("1989", "")
+			Expect(err).To(MatchError("empty artist name"))
 		})
 	})
 
@@ -590,6 +842,43 @@ var _ = Describe("appleMusicAgent", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(resp.Songs).To(HaveLen(1))
 			Expect(resp.Songs[0].Name).To(Equal("Cached Song"))
+		})
+	})
+
+	Describe("GetAlbumImages", func() {
+		var agent appleMusicAgent
+
+		It("returns album images in multiple sizes", func() {
+			data := mustMarshal(cachedAlbumArtwork{ArtworkURL: "https://is1-ssl.mzstatic.com/image/thumb/Music116/100x100bb.jpg"})
+			host.KVStoreMock.On("Get", "album:taylor swift:1989").Return(data, true, nil)
+
+			resp, err := agent.GetAlbumImages(metadata.AlbumRequest{Name: "1989", Artist: "Taylor Swift"})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp.Images).To(HaveLen(3))
+			Expect(resp.Images[0].Size).To(Equal(int32(1000)))
+			Expect(resp.Images[0].URL).To(ContainSubstring("1000x1000bb"))
+			Expect(resp.Images[1].Size).To(Equal(int32(600)))
+			Expect(resp.Images[1].URL).To(ContainSubstring("600x600bb"))
+			Expect(resp.Images[2].Size).To(Equal(int32(300)))
+			Expect(resp.Images[2].URL).To(ContainSubstring("300x300bb"))
+		})
+
+		It("returns error when album not found", func() {
+			data := mustMarshal(cachedAlbumArtwork{ArtworkURL: ""})
+			host.KVStoreMock.On("Get", "album:taylor swift:unknown").Return(data, true, nil)
+
+			_, err := agent.GetAlbumImages(metadata.AlbumRequest{Name: "Unknown", Artist: "Taylor Swift"})
+			Expect(err).To(HaveOccurred())
+		})
+
+		It("returns nil when disabled", func() {
+			host.ConfigMock.ExpectedCalls = nil
+			host.ConfigMock.Calls = nil
+			host.ConfigMock.On("Get", configAlbumImages).Return("false", true)
+
+			resp, err := agent.GetAlbumImages(metadata.AlbumRequest{Name: "1989", Artist: "Taylor Swift"})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(resp).To(BeNil())
 		})
 	})
 })
