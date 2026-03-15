@@ -497,6 +497,14 @@ func parseJSONLD(html string) (*jsonLDData, error) {
 	return &ld, nil
 }
 
+// placeholderImageURL is the generic Apple Music image that should be treated as "no image".
+const placeholderImageURL = "https://music.apple.com/assets/meta/apple-music.png"
+
+// isPlaceholderImage returns true if the URL is Apple Music's generic placeholder.
+func isPlaceholderImage(url string) bool {
+	return url == placeholderImageURL
+}
+
 // parseOpenGraphImage extracts the og:image URL from an HTML page.
 func parseOpenGraphImage(html string) string {
 	// Look for <meta property="og:image" content="...">
@@ -685,10 +693,19 @@ func parsePage(html string) *parsedPageData {
 		pdk.Log(pdk.LogDebug, "JSON-LD parsing failed: "+err.Error())
 	}
 
+	// Discard generic Apple Music placeholder image
+	if isPlaceholderImage(page.ImageURL) {
+		pdk.Log(pdk.LogDebug, "discarding placeholder image: "+page.ImageURL)
+		page.ImageURL = ""
+	}
+
 	// Fallback to OpenGraph for image
 	if page.ImageURL == "" {
 		page.ImageURL = parseOpenGraphImage(html)
-		if page.ImageURL != "" {
+		if isPlaceholderImage(page.ImageURL) {
+			pdk.Log(pdk.LogDebug, "discarding placeholder OpenGraph image: "+page.ImageURL)
+			page.ImageURL = ""
+		} else if page.ImageURL != "" {
 			pdk.Log(pdk.LogDebug, "OpenGraph image found: "+page.ImageURL)
 		} else {
 			pdk.Log(pdk.LogDebug, "no OpenGraph image found")
@@ -772,7 +789,7 @@ func (a *appleMusicAgent) GetArtistImages(input metadata.ArtistRequest) (*metada
 		return nil, err
 	}
 
-	if page.ImageURL == "" {
+	if page.ImageURL == "" || isPlaceholderImage(page.ImageURL) {
 		return nil, errors.New("no artist image found")
 	}
 

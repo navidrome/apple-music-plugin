@@ -565,6 +565,20 @@ var _ = Describe("appleMusicAgent", func() {
 		})
 	})
 
+	Describe("isPlaceholderImage", func() {
+		It("returns true for the generic Apple Music placeholder", func() {
+			Expect(isPlaceholderImage("https://music.apple.com/assets/meta/apple-music.png")).To(BeTrue())
+		})
+
+		It("returns false for a real artist image URL", func() {
+			Expect(isPlaceholderImage("https://is1-ssl.mzstatic.com/image/thumb/Music116/486x486bb.jpg")).To(BeFalse())
+		})
+
+		It("returns false for empty string", func() {
+			Expect(isPlaceholderImage("")).To(BeFalse())
+		})
+	})
+
 	Describe("parseOpenGraphImage", func() {
 		It("extracts og:image URL", func() {
 			html := `<html><meta property="og:image" content="https://example.com/og.jpg"></html>`
@@ -763,6 +777,15 @@ var _ = Describe("appleMusicAgent", func() {
 
 		It("returns error when no image found", func() {
 			pageData := parsedPageData{Biography: "A bio"}
+			pageBytes := mustMarshal(pageData)
+			host.KVStoreMock.On("Get", "page:159260351:us").Return(pageBytes, true, nil)
+
+			_, err := agent.GetArtistImages(metadata.ArtistRequest{Name: "Taylor Swift"})
+			Expect(err).To(MatchError("no artist image found"))
+		})
+
+		It("returns error when image is the generic Apple Music placeholder", func() {
+			pageData := parsedPageData{ImageURL: "https://music.apple.com/assets/meta/apple-music.png"}
 			pageBytes := mustMarshal(pageData)
 			host.KVStoreMock.On("Get", "page:159260351:us").Return(pageBytes, true, nil)
 
