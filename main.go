@@ -224,6 +224,21 @@ func httpGet(rawURL string) ([]byte, int32, error) {
 	return resp.Body, resp.StatusCode, nil
 }
 
+// httpGetJSON performs a GET request, checks for 200 status, and unmarshals the JSON response.
+func httpGetJSON(rawURL string, target any) error {
+	body, statusCode, err := httpGet(rawURL)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	if statusCode != 200 {
+		return fmt.Errorf("returned status %d", statusCode)
+	}
+	if err := json.Unmarshal(body, target); err != nil {
+		return fmt.Errorf("failed to parse response: %w", err)
+	}
+	return nil
+}
+
 // --- Name normalization ---
 
 // normalizeName normalizes an artist or album name for cache key use.
@@ -262,17 +277,9 @@ func resolveArtistID(artistName string) (int64, error) {
 
 	pdk.Log(pdk.LogDebug, "searching iTunes API: "+searchURL)
 
-	body, statusCode, err := httpGet(searchURL)
-	if err != nil {
-		return 0, fmt.Errorf("iTunes search failed: %w", err)
-	}
-	if statusCode != 200 {
-		return 0, fmt.Errorf("iTunes search returned status %d", statusCode)
-	}
-
 	var searchResp itunesSearchResponse
-	if err := json.Unmarshal(body, &searchResp); err != nil {
-		return 0, fmt.Errorf("failed to parse iTunes response: %w", err)
+	if err := httpGetJSON(searchURL, &searchResp); err != nil {
+		return 0, fmt.Errorf("iTunes artist search: %w", err)
 	}
 
 	if searchResp.ResultCount == 0 {
@@ -430,35 +437,23 @@ func resolveAlbumArtwork(albumName, artistName string) (string, error) {
 
 	pdk.Log(pdk.LogDebug, "looking up albums for artist: "+lookupURL)
 
-	body, statusCode, err := httpGet(lookupURL)
-	if err != nil {
-		return "", fmt.Errorf("iTunes album lookup failed: %w", err)
-	}
-	if statusCode != 200 {
-		return "", fmt.Errorf("iTunes album lookup returned status %d", statusCode)
-	}
-
 	var lookupResp itunesAlbumSearchResponse
-	if err := json.Unmarshal(body, &lookupResp); err != nil {
-		return "", fmt.Errorf("failed to parse iTunes album response: %w", err)
+	if err := httpGetJSON(lookupURL, &lookupResp); err != nil {
+		return "", fmt.Errorf("iTunes album lookup: %w", err)
 	}
 
-	// Find exact match by album name (artist already matched via artist ID)
+	// Find match by album name (artist already matched via artist ID)
 	bestMatch := findBestAlbumMatch(albumName, lookupResp.Results)
-	if bestMatch == nil {
-		// Cache negative result with short TTL
-		if err := kvSetWithTTL(cacheKey, cachedAlbumArtwork{ArtworkURL: ""}, negativeCacheTTLSeconds); err != nil {
-			pdk.Log(pdk.LogWarn, "failed to cache negative album result: "+err.Error())
-		}
-		return "", errors.New("no matching album found")
-	}
 
-	artworkURL := bestMatch.ArtworkURL100
+	var artworkURL string
+	if bestMatch != nil {
+		artworkURL = bestMatch.ArtworkURL100
+	}
 	if artworkURL == "" {
 		if err := kvSetWithTTL(cacheKey, cachedAlbumArtwork{ArtworkURL: ""}, negativeCacheTTLSeconds); err != nil {
 			pdk.Log(pdk.LogWarn, "failed to cache negative album result: "+err.Error())
 		}
-		return "", errors.New("album match has no artwork")
+		return "", errors.New("no matching album found")
 	}
 
 	// Cache with standard TTL
@@ -651,7 +646,7 @@ func fetchArtistPage(artistID int64, wantField pageField) (*parsedPageData, erro
 
 		html := string(body)
 		pdk.Log(pdk.LogDebug, fmt.Sprintf("received page for country %s: %d bytes, status %d", country, len(body), statusCode))
-		page := parsePage(html, wantField)
+		page := parsePage(html)
 
 		// Cache the result
 		if err := kvSetWithTTL(cacheKey, page, ttl); err != nil {
@@ -672,40 +667,36 @@ func fetchArtistPage(artistID int64, wantField pageField) (*parsedPageData, erro
 	return nil, errors.New("no page data found for any country")
 }
 
-// parsePage extracts metadata from an Apple Music artist HTML page.
-// Only parses fields relevant to wantField to avoid unnecessary work.
-func parsePage(html string, wantField pageField) *parsedPageData {
+// parsePage extracts all metadata from an Apple Music artist HTML page.
+// Always parses all fields so the cached result is complete for any future capability request.
+func parsePage(html string) *parsedPageData {
 	page := &parsedPageData{}
 
 	pdk.Log(pdk.LogDebug, fmt.Sprintf("parsing page HTML (%d bytes)", len(html)))
 
 	// Parse JSON-LD for biography and image
-	if wantField != fieldSimilar {
-		ld, err := parseJSONLD(html)
-		if err == nil {
-			page.Biography = ld.Description
-			page.ImageURL = ld.Image
-			pdk.Log(pdk.LogDebug, fmt.Sprintf("JSON-LD parsed: type=%s, name=%s, bio=%d chars, image=%s",
-				ld.Type, ld.Name, len(ld.Description), ld.Image))
+	ld, err := parseJSONLD(html)
+	if err == nil {
+		page.Biography = ld.Description
+		page.ImageURL = ld.Image
+		pdk.Log(pdk.LogDebug, fmt.Sprintf("JSON-LD parsed: type=%s, name=%s, bio=%d chars, image=%s",
+			ld.Type, ld.Name, len(ld.Description), ld.Image))
+	} else {
+		pdk.Log(pdk.LogDebug, "JSON-LD parsing failed: "+err.Error())
+	}
+
+	// Fallback to OpenGraph for image
+	if page.ImageURL == "" {
+		page.ImageURL = parseOpenGraphImage(html)
+		if page.ImageURL != "" {
+			pdk.Log(pdk.LogDebug, "OpenGraph image found: "+page.ImageURL)
 		} else {
-			pdk.Log(pdk.LogDebug, "JSON-LD parsing failed: "+err.Error())
-		}
-
-		// Fallback to OpenGraph for image
-		if page.ImageURL == "" {
-			page.ImageURL = parseOpenGraphImage(html)
-			if page.ImageURL != "" {
-				pdk.Log(pdk.LogDebug, "OpenGraph image found: "+page.ImageURL)
-			} else {
-				pdk.Log(pdk.LogDebug, "no OpenGraph image found")
-			}
+			pdk.Log(pdk.LogDebug, "no OpenGraph image found")
 		}
 	}
 
-	// Parse similar artists only when needed
-	if wantField == fieldSimilar || wantField == fieldAny {
-		page.SimilarArtists = parseSimilarArtists(html)
-	}
+	// Parse similar artists
+	page.SimilarArtists = parseSimilarArtists(html)
 
 	pdk.Log(pdk.LogDebug, fmt.Sprintf("parsed page result: bio=%d chars, image=%v, similar=%d",
 		len(page.Biography), page.ImageURL != "", len(page.SimilarArtists)))
@@ -848,17 +839,9 @@ func (a *appleMusicAgent) GetArtistTopSongs(input metadata.TopSongsRequest) (*me
 
 	pdk.Log(pdk.LogDebug, "fetching top songs: "+lookupURL)
 
-	body, statusCode, err := httpGet(lookupURL)
-	if err != nil {
-		return nil, fmt.Errorf("iTunes lookup failed: %w", err)
-	}
-	if statusCode != 200 {
-		return nil, fmt.Errorf("iTunes lookup returned status %d", statusCode)
-	}
-
 	var lookupResp itunesLookupResponse
-	if err := json.Unmarshal(body, &lookupResp); err != nil {
-		return nil, fmt.Errorf("failed to parse iTunes lookup response: %w", err)
+	if err := httpGetJSON(lookupURL, &lookupResp); err != nil {
+		return nil, fmt.Errorf("iTunes top songs lookup: %w", err)
 	}
 
 	// First result is the artist itself, skip it
