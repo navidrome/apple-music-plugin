@@ -400,20 +400,24 @@ var _ = Describe("appleMusicAgent", func() {
 			Expect(err).To(MatchError("no matching album found"))
 		})
 
-		It("searches iTunes API on cache miss", func() {
+		It("looks up albums via artist ID on cache miss", func() {
 			host.KVStoreMock.On("Get", "album:taylor swift:1989").Return([]byte(nil), false, nil)
-			host.ConfigMock.On("Get", configCountries).Return("us", true)
+			// Mock resolveArtistID (cache hit)
+			host.KVStoreMock.On("Get", "artist:taylor swift").Return(
+				mustMarshal(cachedArtistID{ArtistID: taylorSwiftID}), true, nil,
+			)
 			host.ConfigMock.On("GetInt", configCacheTTLDays).Return(int64(7), true)
 
-			searchResp := itunesAlbumSearchResponse{
-				ResultCount: 1,
+			lookupResp := itunesAlbumSearchResponse{
+				ResultCount: 2,
 				Results: []itunesAlbumResult{
+					{WrapperType: "artist", CollectionName: "", ArtistName: "Taylor Swift", ArtworkURL100: ""},
 					{WrapperType: "collection", CollectionName: "1989", ArtistName: "Taylor Swift", ArtworkURL100: "https://is1-ssl.mzstatic.com/image/thumb/Music/100x100bb.jpg"},
 				},
 			}
-			respBody := mustMarshal(searchResp)
+			respBody := mustMarshal(lookupResp)
 			host.HTTPMock.On("Send", mock.MatchedBy(func(req host.HTTPRequest) bool {
-				return req.Method == "GET" && strings.Contains(req.URL, "entity=album")
+				return req.Method == "GET" && strings.Contains(req.URL, "itunes.apple.com/lookup") && strings.Contains(req.URL, "entity=album")
 			})).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
 
 			host.KVStoreMock.On("SetWithTTL", "album:taylor swift:1989", mock.Anything, int64(7*24*60*60)).Return(nil)
@@ -425,15 +429,18 @@ var _ = Describe("appleMusicAgent", func() {
 
 		It("caches negative result when no album matches", func() {
 			host.KVStoreMock.On("Get", "album:taylor swift:unknown album").Return([]byte(nil), false, nil)
-			host.ConfigMock.On("Get", configCountries).Return("us", true)
+			host.KVStoreMock.On("Get", "artist:taylor swift").Return(
+				mustMarshal(cachedArtistID{ArtistID: taylorSwiftID}), true, nil,
+			)
 
-			searchResp := itunesAlbumSearchResponse{
-				ResultCount: 1,
+			lookupResp := itunesAlbumSearchResponse{
+				ResultCount: 2,
 				Results: []itunesAlbumResult{
+					{WrapperType: "artist", CollectionName: "", ArtistName: "Taylor Swift", ArtworkURL100: ""},
 					{WrapperType: "collection", CollectionName: "Different Album", ArtistName: "Taylor Swift", ArtworkURL100: "https://img.jpg"},
 				},
 			}
-			respBody := mustMarshal(searchResp)
+			respBody := mustMarshal(lookupResp)
 			host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
 
 			negativeCacheData := mustMarshal(cachedAlbumArtwork{ArtworkURL: ""})
@@ -444,12 +451,16 @@ var _ = Describe("appleMusicAgent", func() {
 			host.KVStoreMock.AssertCalled(GinkgoT(), "SetWithTTL", "album:taylor swift:unknown album", negativeCacheData, int64(negativeCacheTTLSeconds))
 		})
 
-		It("caches negative result when zero results returned", func() {
+		It("caches negative result when zero albums returned", func() {
 			host.KVStoreMock.On("Get", "album:taylor swift:nope").Return([]byte(nil), false, nil)
-			host.ConfigMock.On("Get", configCountries).Return("us", true)
+			host.KVStoreMock.On("Get", "artist:taylor swift").Return(
+				mustMarshal(cachedArtistID{ArtistID: taylorSwiftID}), true, nil,
+			)
 
-			searchResp := itunesAlbumSearchResponse{ResultCount: 0, Results: nil}
-			respBody := mustMarshal(searchResp)
+			lookupResp := itunesAlbumSearchResponse{ResultCount: 1, Results: []itunesAlbumResult{
+				{WrapperType: "artist", CollectionName: "", ArtistName: "Taylor Swift", ArtworkURL100: ""},
+			}}
+			respBody := mustMarshal(lookupResp)
 			host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
 
 			negativeCacheData := mustMarshal(cachedAlbumArtwork{ArtworkURL: ""})

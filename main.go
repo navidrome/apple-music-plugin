@@ -336,7 +336,8 @@ func findBestAlbumMatch(albumName, artistName string, results []itunesAlbumResul
 	return nil
 }
 
-// resolveAlbumArtwork looks up album artwork URL from the iTunes Search API.
+// resolveAlbumArtwork looks up album artwork URL via the iTunes Lookup API.
+// Uses the artist ID to fetch all albums, then matches by album name.
 // Uses KVStore cache with TTL. Caches "not found" with a shorter negative TTL.
 func resolveAlbumArtwork(albumName, artistName string) (string, error) {
 	normalizedAlbum := normalizeName(albumName)
@@ -360,30 +361,32 @@ func resolveAlbumArtwork(albumName, artistName string) (string, error) {
 		return cached.ArtworkURL, nil
 	}
 
-	// Search iTunes API
-	countries := getCountries()
-	country := countries[0]
-
-	searchURL := fmt.Sprintf("%s?term=%s&entity=album&limit=10&country=%s",
-		iTunesSearchURL, url.QueryEscape(artistName+" "+albumName), url.QueryEscape(country))
-
-	pdk.Log(pdk.LogDebug, "searching iTunes API for album: "+searchURL)
-
-	body, statusCode, err := httpGet(searchURL)
+	// Resolve artist ID first
+	artistID, err := resolveArtistID(artistName)
 	if err != nil {
-		return "", fmt.Errorf("iTunes album search failed: %w", err)
+		return "", fmt.Errorf("failed to resolve artist for album lookup: %w", err)
+	}
+
+	// Look up all albums by artist ID via the iTunes Lookup API
+	lookupURL := fmt.Sprintf("%s?id=%d&entity=album&limit=200", iTunesLookupURL, artistID)
+
+	pdk.Log(pdk.LogDebug, "looking up albums for artist: "+lookupURL)
+
+	body, statusCode, err := httpGet(lookupURL)
+	if err != nil {
+		return "", fmt.Errorf("iTunes album lookup failed: %w", err)
 	}
 	if statusCode != 200 {
-		return "", fmt.Errorf("iTunes album search returned status %d", statusCode)
+		return "", fmt.Errorf("iTunes album lookup returned status %d", statusCode)
 	}
 
-	var searchResp itunesAlbumSearchResponse
-	if err := json.Unmarshal(body, &searchResp); err != nil {
+	var lookupResp itunesAlbumSearchResponse
+	if err := json.Unmarshal(body, &lookupResp); err != nil {
 		return "", fmt.Errorf("failed to parse iTunes album response: %w", err)
 	}
 
-	// Find exact match by album name + artist name
-	bestMatch := findBestAlbumMatch(albumName, artistName, searchResp.Results)
+	// Find exact match by album name (artist already matched via artist ID)
+	bestMatch := findBestAlbumMatch(albumName, artistName, lookupResp.Results)
 	if bestMatch == nil {
 		// Cache negative result with short TTL
 		if err := kvSetWithTTL(cacheKey, cachedAlbumArtwork{ArtworkURL: ""}, negativeCacheTTLSeconds); err != nil {
