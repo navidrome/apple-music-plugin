@@ -3,7 +3,7 @@
 [![Build](https://github.com/navidrome/apple-music-plugin/actions/workflows/build.yml/badge.svg)](https://github.com/navidrome/apple-music-plugin/actions/workflows/build.yml)
 [![Latest](https://img.shields.io/github/v/release/navidrome/apple-music-plugin)](https://github.com/navidrome/apple-music-plugin/releases/latest/download/apple-music.ndp)
 
-**Attention: This plugin requires Navidrome 0.61.0 (not released yet) or later.**
+**Attention: This plugin requires Navidrome 0.61.0 or later.**
 
 This plugin fetches artist and album metadata from Apple Music using free iTunes/Apple Music endpoints — no API key or authentication required.
 It provides artist biographies, images, similar artists, top songs, and album artwork by scraping Apple Music web pages and querying the iTunes Search/Lookup APIs.
