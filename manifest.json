@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/navidrome/navidrome/refs/heads/master/plugins/manifest-schema.json",
   "name": "Apple Music Metadata Agent",
   "author": "Navidrome Team",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Fetches artist metadata from Apple Music using free iTunes/Apple Music endpoints",
   "website": "https://github.com/navidrome/apple-music-plugin",
   "config": {
