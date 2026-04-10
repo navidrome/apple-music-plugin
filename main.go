@@ -37,6 +37,7 @@ const (
 	configSimilarArtists  = "enable_similar_artists"
 	configTopSongs        = "enable_top_songs"
 	configAlbumImages     = "enable_album_images"
+	configAlbumInfo       = "enable_album_info"
 )
 
 // Compile-time interface assertions
@@ -47,6 +48,7 @@ var (
 	_ metadata.SimilarArtistsProvider  = (*appleMusicAgent)(nil)
 	_ metadata.ArtistTopSongsProvider  = (*appleMusicAgent)(nil)
 	_ metadata.AlbumImagesProvider     = (*appleMusicAgent)(nil)
+	_ metadata.AlbumInfoProvider       = (*appleMusicAgent)(nil)
 )
 
 func init() {
@@ -88,10 +90,11 @@ type itunesAlbumSearchResponse struct {
 }
 
 type itunesAlbumResult struct {
-	WrapperType    string `json:"wrapperType"`
-	CollectionName string `json:"collectionName"`
-	ArtistName     string `json:"artistName"`
-	ArtworkURL100  string `json:"artworkUrl100"`
+	WrapperType       string `json:"wrapperType"`
+	CollectionName    string `json:"collectionName"`
+	ArtistName        string `json:"artistName"`
+	ArtworkURL100     string `json:"artworkUrl100"`
+	CollectionViewURL string `json:"collectionViewUrl"`
 }
 
 // --- Scraped page data ---
@@ -112,8 +115,14 @@ type cachedArtistID struct {
 	ArtistID int64 `json:"artistId"`
 }
 
-type cachedAlbumArtwork struct {
-	ArtworkURL string `json:"artworkUrl"`
+type cachedAlbumMatch struct {
+	ArtworkURL        string `json:"artworkUrl,omitempty"`
+	CollectionViewURL string `json:"collectionViewUrl,omitempty"`
+}
+
+type cachedAlbumInfo struct {
+	URL         string `json:"url,omitempty"`
+	Description string `json:"description"`
 }
 
 // --- JSON-LD structure ---
@@ -403,39 +412,40 @@ func findBestAlbumMatch(albumName string, results []itunesAlbumResult) *itunesAl
 	return nil
 }
 
-// resolveAlbumArtwork looks up album artwork URL via the iTunes Lookup API.
+// resolveAlbumMatch looks up an album via the iTunes Lookup API and returns the
+// cached match data (artwork URL and canonical Apple Music URL).
 // Uses the artist ID to fetch all albums, then matches by album name.
 // Uses KVStore cache with TTL. Caches "not found" with a shorter negative TTL.
-func resolveAlbumArtwork(albumName, artistName string) (string, error) {
+func resolveAlbumMatch(albumName, artistName string) (*cachedAlbumMatch, error) {
 	normalizedAlbum := normalizeName(albumName)
 	normalizedArtist := normalizeName(artistName)
 	if normalizedAlbum == "" {
-		return "", errors.New("empty album name")
+		return nil, errors.New("empty album name")
 	}
 	if normalizedArtist == "" {
-		return "", errors.New("empty artist name")
+		return nil, errors.New("empty artist name")
 	}
 
 	// Check cache
 	cacheKey := fmt.Sprintf("album:%s:%s", normalizedArtist, normalizedAlbum)
-	var cached cachedAlbumArtwork
+	var cached cachedAlbumMatch
 	if kvGet(cacheKey, &cached) {
-		if cached.ArtworkURL == "" {
-			pdk.Log(pdk.LogDebug, "album artwork negative cache hit: "+cacheKey)
-			return "", nil
+		if cached.ArtworkURL == "" && cached.CollectionViewURL == "" {
+			pdk.Log(pdk.LogDebug, "album negative cache hit: "+cacheKey)
+			return nil, nil
 		}
-		pdk.Log(pdk.LogDebug, "album artwork cache hit: "+cacheKey)
-		return cached.ArtworkURL, nil
+		pdk.Log(pdk.LogDebug, "album cache hit: "+cacheKey)
+		return &cached, nil
 	}
 
 	// Resolve artist ID first
 	artistID, err := resolveArtistID(artistName)
 	if err != nil {
-		return "", fmt.Errorf("failed to resolve artist for album lookup: %w", err)
+		return nil, fmt.Errorf("failed to resolve artist for album lookup: %w", err)
 	}
 	if artistID == 0 {
 		pdk.Log(pdk.LogDebug, "artist not found for album lookup: "+artistName)
-		return "", nil
+		return nil, nil
 	}
 
 	// Look up all albums by artist ID via the iTunes Lookup API
@@ -445,32 +455,45 @@ func resolveAlbumArtwork(albumName, artistName string) (string, error) {
 
 	var lookupResp itunesAlbumSearchResponse
 	if err := httpGetJSON(lookupURL, &lookupResp); err != nil {
-		return "", fmt.Errorf("iTunes album lookup: %w", err)
+		return nil, fmt.Errorf("iTunes album lookup: %w", err)
 	}
 
 	// Find match by album name (artist already matched via artist ID)
 	bestMatch := findBestAlbumMatch(albumName, lookupResp.Results)
 
-	var artworkURL string
-	if bestMatch != nil {
-		artworkURL = bestMatch.ArtworkURL100
-	}
-	if artworkURL == "" {
+	if bestMatch == nil || bestMatch.ArtworkURL100 == "" {
 		pdk.Log(pdk.LogDebug, fmt.Sprintf("no matching album found for '%s' by '%s'", albumName, artistName))
-		if err := kvSetWithTTL(cacheKey, cachedAlbumArtwork{ArtworkURL: ""}, negativeCacheTTLSeconds); err != nil {
+		if err := kvSetWithTTL(cacheKey, cachedAlbumMatch{}, negativeCacheTTLSeconds); err != nil {
 			pdk.Log(pdk.LogWarn, "failed to cache negative album result: "+err.Error())
 		}
-		return "", nil
+		return nil, nil
+	}
+
+	match := &cachedAlbumMatch{
+		ArtworkURL:        bestMatch.ArtworkURL100,
+		CollectionViewURL: stripTrackingParams(bestMatch.CollectionViewURL),
 	}
 
 	// Cache with standard TTL
 	ttl := getCacheTTLSeconds()
-	if err := kvSetWithTTL(cacheKey, cachedAlbumArtwork{ArtworkURL: artworkURL}, ttl); err != nil {
-		pdk.Log(pdk.LogWarn, "failed to cache album artwork: "+err.Error())
+	if err := kvSetWithTTL(cacheKey, match, ttl); err != nil {
+		pdk.Log(pdk.LogWarn, "failed to cache album match: "+err.Error())
 	}
 
-	pdk.Log(pdk.LogInfo, fmt.Sprintf("resolved album '%s' by '%s' → artwork URL", albumName, artistName))
-	return artworkURL, nil
+	pdk.Log(pdk.LogInfo, fmt.Sprintf("resolved album '%s' by '%s' → match", albumName, artistName))
+	return match, nil
+}
+
+// stripTrackingParams removes query parameters and fragments from a URL. iTunes
+// Lookup returns album URLs with ?uo=4 tracking suffixes that we don't want to persist.
+func stripTrackingParams(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	u.RawQuery = ""
+	u.Fragment = ""
+	return u.String()
 }
 
 // --- HTML parsing helpers ---
@@ -502,6 +525,91 @@ func parseJSONLD(html string) (*jsonLDData, error) {
 	}
 
 	return &ld, nil
+}
+
+var serializedServerDataRegex = regexp.MustCompile(`(?is)<script[^>]*id="serialized-server-data"[^>]*>(.*?)</script>`)
+
+// serverDataPage mirrors the path where Apple Music stores album editorial notes:
+// data[0].data.sections[*].items[*].modalPresentationDescriptor.paragraphText.
+// Unrelated fields are dropped by the JSON decoder.
+type serverDataPage struct {
+	Data []struct {
+		Data struct {
+			Sections []struct {
+				Items []struct {
+					ModalPresentationDescriptor struct {
+						ParagraphText string `json:"paragraphText"`
+					} `json:"modalPresentationDescriptor"`
+				} `json:"items"`
+			} `json:"sections"`
+		} `json:"data"`
+	} `json:"data"`
+}
+
+func parseAlbumDescription(html []byte) string {
+	m := serializedServerDataRegex.FindSubmatch(html)
+	if m == nil {
+		return ""
+	}
+
+	// Apple wraps the page data in an array, but fall back to a single object for robustness.
+	var pages []serverDataPage
+	if err := json.Unmarshal(m[1], &pages); err != nil {
+		var single serverDataPage
+		if err2 := json.Unmarshal(m[1], &single); err2 != nil {
+			pdk.Log(pdk.LogDebug, "failed to parse serialized-server-data: "+err2.Error())
+			return ""
+		}
+		pages = []serverDataPage{single}
+	}
+
+	for _, p := range pages {
+		for _, d := range p.Data {
+			for _, s := range d.Data.Sections {
+				for _, it := range s.Items {
+					if text := strings.TrimSpace(it.ModalPresentationDescriptor.ParagraphText); text != "" {
+						return text
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// fetchAlbumDescription iterates configured countries, rewriting the URL's country
+// segment, and returns the first editorial description found. The second return value
+// reports whether any country's page was fetched successfully, so the caller can tell
+// "album has no notes" (cache it) from "all fetches failed" (don't cache).
+func fetchAlbumDescription(collectionViewURL string) (string, bool) {
+	countries := getCountries()
+	anySuccess := false
+	for _, country := range countries {
+		pageURL := rewriteAlbumURLCountry(collectionViewURL, country)
+		pdk.Log(pdk.LogDebug, "fetching Apple Music album page: "+pageURL)
+
+		body, statusCode, err := httpGet(pageURL)
+		if err != nil {
+			pdk.Log(pdk.LogWarn, fmt.Sprintf("failed to fetch album page for country %s: %s", country, err.Error()))
+			continue
+		}
+		if statusCode != 200 {
+			pdk.Log(pdk.LogWarn, fmt.Sprintf("album page returned %d for country %s", statusCode, country))
+			continue
+		}
+
+		anySuccess = true
+		if description := parseAlbumDescription(body); description != "" {
+			return description, true
+		}
+	}
+	return "", anySuccess
+}
+
+var albumURLCountryRegex = regexp.MustCompile(`^(https?://music\.apple\.com/)[a-z]{2}(/album/)`)
+
+func rewriteAlbumURLCountry(albumURL, country string) string {
+	return albumURLCountryRegex.ReplaceAllString(albumURL, "${1}"+country+"${2}")
 }
 
 // placeholderImageURL is the generic Apple Music image that should be treated as "no image".
@@ -940,14 +1048,62 @@ func (a *appleMusicAgent) GetAlbumImages(input metadata.AlbumRequest) (*metadata
 		return nil, nil
 	}
 
-	artworkURL, err := resolveAlbumArtwork(input.Name, input.Artist)
+	match, err := resolveAlbumMatch(input.Name, input.Artist)
 	if err != nil {
 		return nil, err
 	}
-	if artworkURL == "" {
+	if match == nil || match.ArtworkURL == "" {
 		pdk.Log(pdk.LogDebug, fmt.Sprintf("no album artwork found for '%s' by '%s'", input.Name, input.Artist))
 		return nil, nil
 	}
 
-	return &metadata.AlbumImagesResponse{Images: buildImageList(artworkURL)}, nil
+	return &metadata.AlbumImagesResponse{Images: buildImageList(match.ArtworkURL)}, nil
+}
+
+// GetAlbumInfo returns the Apple Music URL and editorial description for an album.
+// Uses a dedicated album_info cache (separate from the album-match cache) so that
+// a cache hit avoids both the iTunes Lookup KV read and the album page fetch.
+func (a *appleMusicAgent) GetAlbumInfo(input metadata.AlbumRequest) (*metadata.AlbumInfoResponse, error) {
+	if !isEnabled(configAlbumInfo) {
+		return nil, nil
+	}
+
+	cacheKey := fmt.Sprintf("album_info:%s:%s", normalizeName(input.Artist), normalizeName(input.Name))
+	var cachedInfo cachedAlbumInfo
+	if kvGet(cacheKey, &cachedInfo) {
+		if cachedInfo.URL == "" {
+			return nil, nil
+		}
+		return &metadata.AlbumInfoResponse{
+			Name:        input.Name,
+			URL:         cachedInfo.URL,
+			Description: cachedInfo.Description,
+		}, nil
+	}
+
+	match, err := resolveAlbumMatch(input.Name, input.Artist)
+	if err != nil {
+		return nil, err
+	}
+	if match == nil || match.CollectionViewURL == "" {
+		return nil, nil
+	}
+
+	resp := &metadata.AlbumInfoResponse{
+		Name: input.Name,
+		URL:  match.CollectionViewURL,
+	}
+
+	description, fetched := fetchAlbumDescription(match.CollectionViewURL)
+	resp.Description = description
+	if !fetched {
+		// All country fetches failed: return URL but don't cache, so the next call retries.
+		return resp, nil
+	}
+
+	entry := cachedAlbumInfo{URL: match.CollectionViewURL, Description: description}
+	if err := kvSetWithTTL(cacheKey, entry, getCacheTTLSeconds()); err != nil {
+		pdk.Log(pdk.LogWarn, "failed to cache album info: "+err.Error())
+	}
+	return resp, nil
 }

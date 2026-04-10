@@ -6,13 +6,14 @@
 **Attention: This plugin requires Navidrome 0.61.0 or later.**
 
 This plugin fetches artist and album metadata from Apple Music using free iTunes/Apple Music endpoints — no API key or authentication required.
-It provides artist biographies, images, similar artists, top songs, and album artwork by scraping Apple Music web pages and querying the iTunes Search/Lookup APIs.
+It provides artist biographies, images, similar artists, top songs, album artwork, and album editorial notes by scraping Apple Music web pages and querying the iTunes Search/Lookup APIs.
 
 ## Features
 
 - Fetches artist biographies from Apple Music pages
 - Retrieves artist images in multiple sizes (1500x1500, 600x600, 300x300)
 - Retrieves album artwork in multiple sizes (1500x1500, 600x600, 300x300)
+- Fetches album editorial notes and Apple Music album URLs
 - Discovers similar artists from Apple Music's artist pages
 - Fetches top songs via the iTunes Lookup API
 - Provides Apple Music artist page URLs
@@ -60,22 +61,23 @@ Access the plugin configuration in Navidrome: **Settings > Plugins > Apple Music
 
 #### Capabilities
 - **Default**: All enabled except Album Images
-- **What it is**: Each capability (Artist URL, Artist Biography, Artist Images, Similar Artists, Top Songs, Album Images) can be individually toggled on or off. When disabled, the plugin will skip that capability and Navidrome will fall through to the next configured agent.
+- **What it is**: Each capability (Artist URL, Artist Biography, Artist Images, Similar Artists, Top Songs, Album Images, Album Info) can be individually toggled on or off. When disabled, the plugin will skip that capability and Navidrome will fall through to the next configured agent.
 
 ## How It Works
 
 ### Plugin Capabilities
 
-The plugin implements six metadata provider capabilities:
+The plugin implements seven metadata provider capabilities:
 
-| Capability             | Purpose                                                        |
-|------------------------|----------------------------------------------------------------|
-| **GetArtistURL**       | Returns the Apple Music artist page URL                        |
-| **GetArtistBiography** | Fetches artist biography text from Apple Music pages           |
-| **GetArtistImages**    | Retrieves artist images in three sizes                         |
-| **GetSimilarArtists**  | Discovers similar artists from the Apple Music artist page     |
-| **GetArtistTopSongs**  | Fetches popular tracks via the iTunes Lookup API               |
-| **GetAlbumImages**     | Retrieves album artwork in three sizes via iTunes Lookup API   |
+| Capability             | Purpose                                                               |
+|------------------------|-----------------------------------------------------------------------|
+| **GetArtistURL**       | Returns the Apple Music artist page URL                               |
+| **GetArtistBiography** | Fetches artist biography text from Apple Music pages                  |
+| **GetArtistImages**    | Retrieves artist images in three sizes                                |
+| **GetSimilarArtists**  | Discovers similar artists from the Apple Music artist page            |
+| **GetArtistTopSongs**  | Fetches popular tracks via the iTunes Lookup API                      |
+| **GetAlbumImages**     | Retrieves album artwork in three sizes via iTunes Lookup API          |
+| **GetAlbumInfo**       | Returns album editorial notes and the Apple Music album URL           |
 
 ### Host Services
 
@@ -97,11 +99,12 @@ The plugin implements six metadata provider capabilities:
 
 ### Data Sources
 
-| Source            | URL                                       | Data                               |
-|-------------------|-------------------------------------------|------------------------------------|
-| iTunes Search API | `itunes.apple.com/search`                 | Artist ID resolution               |
-| iTunes Lookup API | `itunes.apple.com/lookup`                 | Top songs, album artwork           |
-| Apple Music Web   | `music.apple.com/{country}/artist/-/{id}` | Biography, images, similar artists |
+| Source            | URL                                            | Data                               |
+|-------------------|------------------------------------------------|------------------------------------|
+| iTunes Search API | `itunes.apple.com/search`                      | Artist ID resolution               |
+| iTunes Lookup API | `itunes.apple.com/lookup`                      | Top songs, album artwork, album URL |
+| Apple Music Web   | `music.apple.com/{country}/artist/-/{id}`      | Biography, images, similar artists |
+| Apple Music Web   | `music.apple.com/{country}/album/{slug}/{id}`  | Album editorial notes              |
 
 ### Files
 
