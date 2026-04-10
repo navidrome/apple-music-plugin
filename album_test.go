@@ -136,6 +136,72 @@ var _ = Describe("album", func() {
 			Expect(match).To(BeNil())
 		})
 
+		It("treats pre-0.2.0 cache entries (artwork only, no URL) as a miss", func() {
+			// Before 0.2.0, cache stored only artworkUrl. After upgrade the unmarshalled
+			// entry has an empty CollectionViewURL, which would make GetAlbumInfo return nil.
+			// Expect the cache-hit path to fall through and re-fetch from iTunes.
+			staleData := mustMarshal(cachedAlbumMatch{ArtworkURL: "https://old.jpg"})
+			host.KVStoreMock.On("Get", "album:taylor swift:1989").Return(staleData, true, nil)
+			host.KVStoreMock.On("Get", "artist:taylor swift").Return(
+				mustMarshal(cachedArtistID{ArtistID: taylorSwiftID}), true, nil,
+			)
+			host.ConfigMock.On("Get", configCountries).Return("us", true).Maybe()
+			host.ConfigMock.On("GetInt", configCacheTTLDays).Return(int64(7), true)
+
+			lookupResp := itunesAlbumSearchResponse{
+				ResultCount: 1,
+				Results: []itunesAlbumResult{
+					{
+						WrapperType:       "collection",
+						CollectionName:    "1989",
+						ArtistName:        "Taylor Swift",
+						ArtworkURL100:     "https://new.jpg",
+						CollectionViewURL: "https://music.apple.com/us/album/1989/1",
+					},
+				},
+			}
+			respBody := mustMarshal(lookupResp)
+			host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
+			host.KVStoreMock.On("SetWithTTL", "album:taylor swift:1989", mock.Anything, int64(7*24*60*60)).Return(nil)
+
+			match, err := resolveAlbumMatch("1989", "Taylor Swift")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(match).ToNot(BeNil())
+			Expect(match.ArtworkURL).To(Equal("https://new.jpg"))
+			Expect(match.CollectionViewURL).To(Equal("https://music.apple.com/us/album/1989/1"))
+		})
+
+		It("accepts a match that has a URL but no artwork", func() {
+			host.KVStoreMock.On("Get", "album:taylor swift:1989").Return([]byte(nil), false, nil)
+			host.KVStoreMock.On("Get", "artist:taylor swift").Return(
+				mustMarshal(cachedArtistID{ArtistID: taylorSwiftID}), true, nil,
+			)
+			host.ConfigMock.On("Get", configCountries).Return("us", true).Maybe()
+			host.ConfigMock.On("GetInt", configCacheTTLDays).Return(int64(7), true)
+
+			lookupResp := itunesAlbumSearchResponse{
+				ResultCount: 1,
+				Results: []itunesAlbumResult{
+					{
+						WrapperType:       "collection",
+						CollectionName:    "1989",
+						ArtistName:        "Taylor Swift",
+						ArtworkURL100:     "",
+						CollectionViewURL: "https://music.apple.com/us/album/1989/1",
+					},
+				},
+			}
+			respBody := mustMarshal(lookupResp)
+			host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{StatusCode: 200, Body: respBody}, nil)
+			host.KVStoreMock.On("SetWithTTL", "album:taylor swift:1989", mock.Anything, int64(7*24*60*60)).Return(nil)
+
+			match, err := resolveAlbumMatch("1989", "Taylor Swift")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(match).ToNot(BeNil())
+			Expect(match.ArtworkURL).To(BeEmpty())
+			Expect(match.CollectionViewURL).To(Equal("https://music.apple.com/us/album/1989/1"))
+		})
+
 		It("looks up albums via artist ID on cache miss", func() {
 			host.KVStoreMock.On("Get", "album:taylor swift:1989").Return([]byte(nil), false, nil)
 			// Mock resolveArtistID (cache hit) + config for cache TTL

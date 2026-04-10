@@ -204,7 +204,10 @@ var _ = Describe("appleMusicAgent", func() {
 		var agent appleMusicAgent
 
 		It("returns album images in multiple sizes", func() {
-			data := mustMarshal(cachedAlbumMatch{ArtworkURL: "https://is1-ssl.mzstatic.com/image/thumb/Music116/100x100bb.jpg"})
+			data := mustMarshal(cachedAlbumMatch{
+				ArtworkURL:        "https://is1-ssl.mzstatic.com/image/thumb/Music116/100x100bb.jpg",
+				CollectionViewURL: "https://music.apple.com/us/album/1989/1",
+			})
 			host.KVStoreMock.On("Get", "album:taylor swift:1989").Return(data, true, nil)
 
 			resp, err := agent.GetAlbumImages(metadata.AlbumRequest{Name: "1989", Artist: "Taylor Swift"})

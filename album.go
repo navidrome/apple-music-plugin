@@ -139,8 +139,13 @@ func resolveAlbumMatch(albumName, artistName string) (*cachedAlbumMatch, error) 
 			pdk.Log(pdk.LogDebug, "album negative cache hit: "+cacheKey)
 			return nil, nil
 		}
-		pdk.Log(pdk.LogDebug, "album cache hit: "+cacheKey)
-		return &cached, nil
+		// Pre-0.2.0 cache entries only stored artwork; treat as a miss so the
+		// CollectionViewURL can be populated on re-fetch.
+		if cached.CollectionViewURL != "" {
+			pdk.Log(pdk.LogDebug, "album cache hit: "+cacheKey)
+			return &cached, nil
+		}
+		pdk.Log(pdk.LogDebug, "album cache entry missing URL, refreshing: "+cacheKey)
 	}
 
 	// Resolve artist ID first
@@ -166,7 +171,7 @@ func resolveAlbumMatch(albumName, artistName string) (*cachedAlbumMatch, error) 
 	// Find match by album name (artist already matched via artist ID)
 	bestMatch := findBestAlbumMatch(albumName, lookupResp.Results)
 
-	if bestMatch == nil || bestMatch.ArtworkURL100 == "" {
+	if bestMatch == nil || (bestMatch.ArtworkURL100 == "" && bestMatch.CollectionViewURL == "") {
 		pdk.Log(pdk.LogDebug, fmt.Sprintf("no matching album found for '%s' by '%s'", albumName, artistName))
 		if err := kvSetWithTTL(cacheKey, cachedAlbumMatch{}, negativeCacheTTLSeconds); err != nil {
 			pdk.Log(pdk.LogWarn, "failed to cache negative album result: "+err.Error())
