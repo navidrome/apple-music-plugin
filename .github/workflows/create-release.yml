@@ -40,7 +40,7 @@ jobs:
                   echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
 
             - name: Check out code
-              uses: actions/checkout@v5
+              uses: actions/checkout@v6
 
             - name: Check tag does not already exist
               run: |
@@ -50,7 +50,7 @@ jobs:
                   fi
 
             - name: Set up Go
-              uses: actions/setup-go@v5
+              uses: actions/setup-go@v6
               with:
                   go-version-file: go.mod
 
