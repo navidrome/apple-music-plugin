@@ -11,8 +11,6 @@ import (
 	"github.com/navidrome/navidrome/plugins/pdk/go/pdk"
 )
 
-// --- iTunes album response types ---
-
 type itunesAlbumSearchResponse struct {
 	ResultCount int                 `json:"resultCount"`
 	Results     []itunesAlbumResult `json:"results"`
@@ -26,8 +24,6 @@ type itunesAlbumResult struct {
 	CollectionViewURL string `json:"collectionViewUrl"`
 }
 
-// --- Cached album data ---
-
 type cachedAlbumMatch struct {
 	ArtworkURL        string `json:"artworkUrl,omitempty"`
 	CollectionViewURL string `json:"collectionViewUrl,omitempty"`
@@ -38,16 +34,8 @@ type cachedAlbumInfo struct {
 	Description string `json:"description"`
 }
 
-// --- Album name matching ---
-
-// baseNameDelimiters are characters that typically separate the core album title
-// from metadata decorations (e.g., remaster info, edition, format).
 var baseNameDelimiters = []string{" (", " [", " - ", ": "}
 
-// extractBaseName extracts the core album title by truncating at each known
-// delimiter type that separates it from metadata decorations.
-// e.g., "The Dark Side of the Moon (50th Anniversary) [Remastered]" → "the dark side of the moon"
-// e.g., "Versions - Single" → "versions"
 func extractBaseName(normalized string) string {
 	for _, delim := range baseNameDelimiters {
 		if idx := strings.Index(normalized, delim); idx > 0 {
@@ -57,13 +45,6 @@ func extractBaseName(normalized string) string {
 	return strings.TrimSpace(normalized)
 }
 
-// findBestAlbumMatch finds an album matching by name from lookup results.
-// Results are assumed to be pre-filtered by artist (via Lookup API by artist ID),
-// so no artist name check is performed.
-// Uses a multi-pass strategy with decreasing strictness:
-//   - Pass 1: exact match on full collection name
-//   - Pass 2: exact match on base names (after stripping parenthetical/bracket/dash decorations)
-//   - Pass 3: containment match on base names (one contains the other)
 func findBestAlbumMatch(albumName string, results []itunesAlbumResult) *itunesAlbumResult {
 	normalizedAlbum := normalizeName(albumName)
 	baseAlbum := extractBaseName(normalizedAlbum)
@@ -115,12 +96,6 @@ func findBestAlbumMatch(albumName string, results []itunesAlbumResult) *itunesAl
 	return nil
 }
 
-// --- Album resolution ---
-
-// resolveAlbumMatch looks up an album via the iTunes Lookup API and returns the
-// cached match data (artwork URL and canonical Apple Music URL).
-// Uses the artist ID to fetch all albums, then matches by album name.
-// Uses KVStore cache with TTL. Caches "not found" with a shorter negative TTL.
 func resolveAlbumMatch(albumName, artistName string) (*cachedAlbumMatch, error) {
 	normalizedAlbum := normalizeName(albumName)
 	normalizedArtist := normalizeName(artistName)
@@ -194,8 +169,6 @@ func resolveAlbumMatch(albumName, artistName string) (*cachedAlbumMatch, error) 
 	return match, nil
 }
 
-// stripTrackingParams removes query parameters and fragments from a URL. iTunes
-// Lookup returns album URLs with ?uo=4 tracking suffixes that we don't want to persist.
 func stripTrackingParams(rawURL string) string {
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -206,13 +179,9 @@ func stripTrackingParams(rawURL string) string {
 	return u.String()
 }
 
-// --- Album page parsing ---
-
 var serializedServerDataRegex = regexp.MustCompile(`(?is)<script[^>]*id="serialized-server-data"[^>]*>(.*?)</script>`)
 
-// serverDataPage mirrors the path where Apple Music stores album editorial notes:
-// data[0].data.sections[*].items[*].modalPresentationDescriptor.paragraphText.
-// Unrelated fields are dropped by the JSON decoder.
+// Mirrors: data[0].data.sections[*].items[*].modalPresentationDescriptor.paragraphText
 type serverDataPage struct {
 	Data []struct {
 		Data struct {
@@ -258,10 +227,8 @@ func parseAlbumDescription(html []byte) string {
 	return ""
 }
 
-// fetchAlbumDescription iterates configured countries, rewriting the URL's country
-// segment, and returns the first editorial description found. The second return value
-// reports whether any country's page was fetched successfully, so the caller can tell
-// "album has no notes" (cache it) from "all fetches failed" (don't cache).
+// The second return value reports whether any fetch succeeded, so the caller
+// can distinguish "no notes" (cacheable) from "all fetches failed" (retry later).
 func fetchAlbumDescription(collectionViewURL string) (string, bool) {
 	countries := getCountries()
 	anySuccess := false

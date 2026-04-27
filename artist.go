@@ -11,8 +11,6 @@ import (
 	"github.com/navidrome/navidrome/plugins/pdk/go/pdk"
 )
 
-// --- iTunes artist response types ---
-
 type itunesSearchResponse struct {
 	ResultCount int                  `json:"resultCount"`
 	Results     []itunesArtistResult `json:"results"`
@@ -36,8 +34,6 @@ type itunesLookupResult struct {
 	ArtistID    int64  `json:"artistId"`
 }
 
-// --- Cached and parsed artist data ---
-
 type cachedArtistID struct {
 	ArtistID int64 `json:"artistId"`
 }
@@ -60,7 +56,6 @@ type jsonLDData struct {
 	Image       string `json:"image"`
 }
 
-// pageField identifies which field of parsedPageData must be non-empty.
 type pageField int
 
 const (
@@ -70,10 +65,6 @@ const (
 	fieldSimilar                    // SimilarArtists
 )
 
-// --- Artist resolution ---
-
-// resolveArtistID looks up an Apple Music artist ID by name.
-// Uses KVStore cache for permanent storage of name→ID mappings.
 func resolveArtistID(artistName string) (int64, error) {
 	normalized := normalizeName(artistName)
 	if normalized == "" {
@@ -133,8 +124,6 @@ func resolveArtistID(artistName string) (int64, error) {
 	return bestMatch.ArtistID, nil
 }
 
-// findBestArtistMatch finds the best matching artist from search results.
-// Uses case-insensitive exact match first, then falls back to first result.
 func findBestArtistMatch(query string, results []itunesArtistResult) *itunesArtistResult {
 	normalized := normalizeName(query)
 	var firstArtist *itunesArtistResult
@@ -152,13 +141,8 @@ func findBestArtistMatch(query string, results []itunesArtistResult) *itunesArti
 	return firstArtist
 }
 
-// --- JSON-LD parsing (used by artist pages) ---
-
-// jsonLDRegex matches a <script> tag containing type="application/ld+json", regardless of
-// other attributes (e.g. id=...) that may appear before or after the type attribute.
 var jsonLDRegex = regexp.MustCompile(`(?i)<script[^>]*type="application/ld\+json"[^>]*>`)
 
-// parseJSONLD extracts and parses JSON-LD data from an HTML page.
 func parseJSONLD(html string) (*jsonLDData, error) {
 	const endTag = `</script>`
 
@@ -183,12 +167,8 @@ func parseJSONLD(html string) (*jsonLDData, error) {
 	return &ld, nil
 }
 
-// --- Placeholder detection ---
-
-// placeholderImageURL is the generic Apple Music image that should be treated as "no image".
 const placeholderImageURL = "https://music.apple.com/assets/meta/apple-music.png"
 
-// isPlaceholderImage returns true if the URL is Apple Music's generic placeholder.
 func isPlaceholderImage(url string) bool {
 	return url == placeholderImageURL
 }
@@ -210,9 +190,6 @@ func isPlaceholderBiography(text string) bool {
 	return appleMusicRegex.MatchString(firstSentence)
 }
 
-// --- OpenGraph image parsing (fallback for artist image) ---
-
-// parseOpenGraphImage extracts the og:image URL from an HTML page.
 func parseOpenGraphImage(html string) string {
 	// Look for <meta property="og:image" content="...">
 	pattern := `<meta property="og:image" content="`
@@ -228,14 +205,11 @@ func parseOpenGraphImage(html string) string {
 	return html[idx : idx+endIdx]
 }
 
-// --- Similar artists parsing ---
-
 const (
 	similarSectionMaxBytes = 60000 // generous chunk after section marker to cover all artist lockups
 	sectionBoundaryOffset  = 100   // skip initial chars before searching for next section boundary
 )
 
-// similarSectionMarkers contains localized aria-label values for the "Similar Artists" section.
 var similarSectionMarkers = []string{
 	`aria-label="Similar Artists"`,
 	`aria-label="Artistas semelhantes"`,
@@ -244,11 +218,8 @@ var similarSectionMarkers = []string{
 	`aria-label="Artistas similares"`,
 }
 
-// lockupTitleRegex matches artist names inside the ellipse-lockup title elements.
-// Apple Music uses: <h3 data-testid="ellipse-lockup__title" ...>Artist Name</h3>
 var lockupTitleRegex = regexp.MustCompile(`data-testid="ellipse-lockup__title"[^>]*>([^<]+)<`)
 
-// parseSimilarArtists extracts similar artist names from the Apple Music HTML page.
 func parseSimilarArtists(html string) []similarArtistInfo {
 	// Find the similar artists section by looking for localized aria-label markers.
 	sectionStart := -1
@@ -296,10 +267,8 @@ func parseSimilarArtists(html string) []similarArtistInfo {
 	return artists
 }
 
-// --- Artist page fetching ---
-
-// fetchArtistPage fetches and parses the Apple Music artist page.
-// Tries each country code in order until content is found.
+// fetchArtistPage tries each configured country in order until a page with the
+// requested field is found.
 func fetchArtistPage(artistID int64, wantField pageField) (*parsedPageData, error) {
 	countries := getCountries()
 	ttl := getCacheTTLSeconds()
@@ -359,8 +328,7 @@ func fetchArtistPage(artistID int64, wantField pageField) (*parsedPageData, erro
 	return nil, nil
 }
 
-// parsePage extracts all metadata from an Apple Music artist HTML page.
-// Always parses all fields so the cached result is complete for any future capability request.
+// parsePage parses all fields so the cached result is complete for any future capability.
 func parsePage(html string) *parsedPageData {
 	page := &parsedPageData{}
 
@@ -411,7 +379,6 @@ func parsePage(html string) *parsedPageData {
 	return page
 }
 
-// hasField checks if the parsed page has the requested field populated.
 func hasField(page *parsedPageData, field pageField) bool {
 	switch field {
 	case fieldBiography:
