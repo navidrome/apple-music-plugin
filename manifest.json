@@ -98,16 +98,16 @@
             {
               "type": "Control",
               "scope": "#/properties/enable_artist_images"
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/enable_similar_artists"
             }
           ]
         },
         {
           "type": "HorizontalLayout",
           "elements": [
-            {
-              "type": "Control",
-              "scope": "#/properties/enable_similar_artists"
-            },
             {
               "type": "Control",
               "scope": "#/properties/enable_top_songs"
@@ -119,6 +119,10 @@
             {
               "type": "Control",
               "scope": "#/properties/enable_album_info"
+            },
+            {
+              "type": "Label",
+              "text": ""
             }
           ]
         }
