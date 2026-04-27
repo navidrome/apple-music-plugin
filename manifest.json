@@ -2,8 +2,8 @@
   "$schema": "https://raw.githubusercontent.com/navidrome/navidrome/refs/heads/master/plugins/manifest-schema.json",
   "name": "Apple Music Metadata Agent",
   "author": "Navidrome Team",
-  "version": "0.1.1",
-  "description": "Fetches artist metadata from Apple Music using free iTunes/Apple Music endpoints",
+  "version": "0.2.0",
+  "description": "Fetches artist and album metadata from Apple Music using free iTunes/Apple Music endpoints",
   "website": "https://github.com/navidrome/apple-music-plugin",
   "config": {
     "schema": {
@@ -50,6 +50,11 @@
           "type": "boolean",
           "title": "Album Images",
           "default": false
+        },
+        "enable_album_info": {
+          "type": "boolean",
+          "title": "Album Info",
+          "default": true
         }
       }
     },
@@ -93,6 +98,10 @@
             {
               "type": "Control",
               "scope": "#/properties/enable_artist_images"
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/enable_similar_artists"
             }
           ]
         },
@@ -101,15 +110,19 @@
           "elements": [
             {
               "type": "Control",
-              "scope": "#/properties/enable_similar_artists"
-            },
-            {
-              "type": "Control",
               "scope": "#/properties/enable_top_songs"
             },
             {
               "type": "Control",
               "scope": "#/properties/enable_album_images"
+            },
+            {
+              "type": "Control",
+              "scope": "#/properties/enable_album_info"
+            },
+            {
+              "type": "Label",
+              "text": ""
             }
           ]
         }
