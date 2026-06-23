@@ -110,6 +110,23 @@ var _ = Describe("helpers", func() {
 				To(Equal("A real album description with <i>italic</i> text."))
 		})
 
+		It("preserves paragraph breaks while collapsing in-line whitespace", func() {
+			Expect(normalizeText("Para\tone\there.\n\nPara\ttwo\tends.")).
+				To(Equal("Para one here.\n\nPara two ends."))
+		})
+
+		It("preserves single newlines between lines", func() {
+			Expect(normalizeText("Line\tone\nLine\ttwo")).To(Equal("Line one\nLine two"))
+		})
+
+		It("normalizes CRLF/CR line endings to LF", func() {
+			Expect(normalizeText("one\r\ntwo\rthree")).To(Equal("one\ntwo\nthree"))
+		})
+
+		It("reduces a whitespace-only line to a blank paragraph separator", func() {
+			Expect(normalizeText("a\n  \t  \nb")).To(Equal("a\n\nb"))
+		})
+
 		It("handles empty string", func() {
 			Expect(normalizeText("")).To(Equal(""))
 		})
