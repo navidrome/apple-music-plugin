@@ -22,7 +22,7 @@ func pluginVersion() string {
 		Version string `json:"version"`
 	}
 	if err := json.Unmarshal(manifestJSON, &m); err != nil || m.Version == "" {
-		return "dev"
+		return "0.0.0"
 	}
 	return m.Version
 }
