@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"os"
 	"strings"
 
 	"github.com/navidrome/navidrome/plugins/pdk/go/host"
@@ -22,6 +24,19 @@ func setupTaylorSwiftCache() {
 	host.ConfigMock.On("Get", configCountries).Return("us", true)
 	host.ConfigMock.On("GetInt", configCacheTTLDays).Return(int64(7), true)
 }
+
+var _ = Describe("userAgent", func() {
+	It("is derived from the manifest.json version", func() {
+		raw, err := os.ReadFile("manifest.json")
+		Expect(err).ToNot(HaveOccurred())
+		var m struct {
+			Version string `json:"version"`
+		}
+		Expect(json.Unmarshal(raw, &m)).To(Succeed())
+		Expect(m.Version).ToNot(BeEmpty())
+		Expect(userAgent).To(Equal("NavidromeAppleMusicPlugin/" + m.Version))
+	})
+})
 
 var _ = Describe("appleMusicAgent", func() {
 	Describe("GetArtistURL", func() {

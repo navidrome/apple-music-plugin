@@ -320,6 +320,11 @@ var _ = Describe("album", func() {
 			html := []byte(`<html><body><script id="serialized-server-data" type="application/json">[{"data":[{"data":{"sections":[{"items":[{"modalPresentationDescriptor":{"paragraphText":""}}]},{"items":[{"modalPresentationDescriptor":{"paragraphText":"Found it"}}]}]}}]}]</script></body></html>`)
 			Expect(parseAlbumDescription(html)).To(Equal("Found it"))
 		})
+
+		It("normalizes internal tab/exotic whitespace to single spaces", func() {
+			html := []byte(`<html><body><script id="serialized-server-data" type="application/json">[{"data":[{"data":{"sections":[{"items":[{"modalPresentationDescriptor":{"paragraphText":"Direct\tnadat\tBLØF\thet\t20-jarig\tjubileum\tafsloot"}}]}]}}]}]</script></body></html>`)
+			Expect(parseAlbumDescription(html)).To(Equal("Direct nadat BLØF het 20-jarig jubileum afsloot"))
+		})
 	})
 
 	Describe("rewriteAlbumURLCountry", func() {

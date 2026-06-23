@@ -113,6 +113,15 @@ func normalizeName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
 }
 
+// normalizeText collapses any run of Unicode whitespace (tabs, newlines,
+// non-breaking and narrow no-break spaces, etc.) into single regular spaces
+// and trims the ends. strings.Fields splits on unicode.IsSpace, which covers
+// \t \n \r, U+00A0, U+202F and the other White_Space code points Apple emits
+// in some editorial notes and biographies.
+func normalizeText(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}
+
 var imageURLRegex = regexp.MustCompile(`/\d+x\d+[a-z]*\.`)
 
 func rewriteImageSize(imageURL string, size int) string {

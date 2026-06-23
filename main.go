@@ -1,14 +1,33 @@
 package main
 
 import (
+	_ "embed"
+	"encoding/json"
 	"fmt"
 
 	"github.com/navidrome/navidrome/plugins/pdk/go/metadata"
 	"github.com/navidrome/navidrome/plugins/pdk/go/pdk"
 )
 
+//go:embed manifest.json
+var manifestJSON []byte
+
+// userAgent identifies the plugin to Apple's endpoints.
+var userAgent = "NavidromeAppleMusicPlugin/" + pluginVersion()
+
+// pluginVersion reads the version from the embedded manifest, falling back to a
+// placeholder if the manifest is missing or malformed.
+func pluginVersion() string {
+	var m struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(manifestJSON, &m); err != nil || m.Version == "" {
+		return "dev"
+	}
+	return m.Version
+}
+
 const (
-	userAgent               = "NavidromeAppleMusicPlugin/0.1"
 	defaultCountry          = "us"
 	defaultCacheTTL         = 7 // days
 	defaultTopSongs         = 10

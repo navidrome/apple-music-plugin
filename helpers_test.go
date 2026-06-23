@@ -91,6 +91,30 @@ var _ = Describe("helpers", func() {
 		})
 	})
 
+	Describe("normalizeText", func() {
+		It("collapses tab characters between words into single spaces", func() {
+			Expect(normalizeText("In\tHet\tMidden\tVan\tAlles")).To(Equal("In Het Midden Van Alles"))
+		})
+
+		It("collapses mixed runs of whitespace (tabs, newlines, NBSP, narrow NBSP)", func() {
+			Expect(normalizeText("In\tHet\tMidden\tVan\tAlles\t  \t  Direct nadat BLØF")).
+				To(Equal("In Het Midden Van Alles Direct nadat BLØF"))
+		})
+
+		It("trims leading and trailing whitespace", func() {
+			Expect(normalizeText("  \t hello world \n ")).To(Equal("hello world"))
+		})
+
+		It("leaves already-clean text (including HTML tags) unchanged", func() {
+			Expect(normalizeText("A real album description with <i>italic</i> text.")).
+				To(Equal("A real album description with <i>italic</i> text."))
+		})
+
+		It("handles empty string", func() {
+			Expect(normalizeText("")).To(Equal(""))
+		})
+	})
+
 	Describe("kvGet", func() {
 		It("returns cached value", func() {
 			data := mustMarshal(cachedArtistID{ArtistID: 12345})
