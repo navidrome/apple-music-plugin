@@ -238,6 +238,20 @@ var _ = Describe("artist", func() {
 		It("returns false for empty string", func() {
 			Expect(isPlaceholderBiography("")).To(BeFalse())
 		})
+
+		// parsePage runs normalizeText on the biography before isPlaceholderBiography
+		// (artist.go). These pin the interaction: normalization must not flip the
+		// placeholder verdict. Promotional text with exotic whitespace is still
+		// detected, and a real bio with tabs is still kept.
+		It("stays placeholder-neutral after normalizeText", func() {
+			promo := "Listen\tto\tmusic\tby X on Apple Music. Find top songs."
+			Expect(isPlaceholderBiography(promo)).To(BeTrue())
+			Expect(isPlaceholderBiography(normalizeText(promo))).To(BeTrue())
+
+			real := "X\tis\tan American singer-songwriter. They later won an Apple Music Award."
+			Expect(isPlaceholderBiography(real)).To(BeFalse())
+			Expect(isPlaceholderBiography(normalizeText(real))).To(BeFalse())
+		})
 	})
 
 	Describe("parseOpenGraphImage", func() {

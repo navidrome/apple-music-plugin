@@ -337,7 +337,7 @@ func parsePage(html string) *parsedPageData {
 	// Parse JSON-LD for biography and image
 	ld, err := parseJSONLD(html)
 	if err == nil {
-		page.Biography = ld.Description
+		page.Biography = normalizeText(ld.Description)
 		page.ImageURL = ld.Image
 		pdk.Log(pdk.LogDebug, fmt.Sprintf("JSON-LD parsed: type=%s, name=%s, bio=%d chars, image=%s",
 			ld.Type, ld.Name, len(ld.Description), ld.Image))

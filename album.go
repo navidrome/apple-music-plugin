@@ -217,7 +217,7 @@ func parseAlbumDescription(html []byte) string {
 		for _, d := range p.Data {
 			for _, s := range d.Data.Sections {
 				for _, it := range s.Items {
-					if text := strings.TrimSpace(it.ModalPresentationDescriptor.ParagraphText); text != "" {
+					if text := normalizeText(it.ModalPresentationDescriptor.ParagraphText); text != "" {
 						return text
 					}
 				}

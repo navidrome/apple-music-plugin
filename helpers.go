@@ -113,6 +113,23 @@ func normalizeName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
 }
 
+// normalizeText collapses runs of horizontal whitespace (tabs, regular spaces,
+// non-breaking and narrow no-break spaces, etc.) within each line into single
+// regular spaces, while preserving line breaks so the paragraph structure of
+// editorial notes and biographies survives. Leading/trailing blank space is
+// trimmed. Apple emits tabs and exotic White_Space code points between words in
+// some notes; strings.Fields (which splits on unicode.IsSpace) collapses them
+// per line, and splitting on newlines first keeps the paragraph breaks intact.
+func normalizeText(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = strings.Join(strings.Fields(line), " ")
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
 var imageURLRegex = regexp.MustCompile(`/\d+x\d+[a-z]*\.`)
 
 func rewriteImageSize(imageURL string, size int) string {
