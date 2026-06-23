@@ -99,12 +99,12 @@ The plugin implements seven metadata provider capabilities:
 
 ### Data Sources
 
-| Source            | URL                                            | Data                               |
-|-------------------|------------------------------------------------|------------------------------------|
-| iTunes Search API | `itunes.apple.com/search`                      | Artist ID resolution               |
-| iTunes Lookup API | `itunes.apple.com/lookup`                      | Top songs, album artwork, album URL |
-| Apple Music Web   | `music.apple.com/{country}/artist/-/{id}`      | Biography, images, similar artists |
-| Apple Music Web   | `music.apple.com/{country}/album/{slug}/{id}`  | Album editorial notes              |
+| Source            | URL                                           | Data                                |
+|-------------------|-----------------------------------------------|-------------------------------------|
+| iTunes Search API | `itunes.apple.com/search`                     | Artist ID resolution                |
+| iTunes Lookup API | `itunes.apple.com/lookup`                     | Top songs, album artwork, album URL |
+| Apple Music Web   | `music.apple.com/{country}/artist/-/{id}`     | Biography, images, similar artists  |
+| Apple Music Web   | `music.apple.com/{country}/album/{slug}/{id}` | Album editorial notes               |
 
 ### Files
 
@@ -118,7 +118,7 @@ The plugin implements seven metadata provider capabilities:
 
 ### Prerequisites
 - **Recommended**: [TinyGo](https://tinygo.org/getting-started/install/) (produces smaller binary size)
-- **Alternative**: Standard Go 1.19+ (larger binary but easier setup)
+- **Alternative**: Standard Go 1.25+ (larger binary but easier setup)
 
 ### Quick Build (Using Makefile)
 ```sh
