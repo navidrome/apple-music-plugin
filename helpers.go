@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -122,9 +121,10 @@ func throttleError(statusCode int32, headers map[string]string) error {
 }
 
 // Every storefront shares one rate limit and block, so trying the next country cannot help.
+// Not errors.As: it reaches reflectlite.AssignableTo, which TinyGo traps on, killing every call.
 func isThrottled(err error) bool {
-	var t *throttleErr
-	return errors.As(err, &t)
+	_, ok := err.(*throttleErr)
+	return ok
 }
 
 // A 403 sends no Retry-After and a 429 may send an HTTP-date; both fall back to the default.
