@@ -344,6 +344,21 @@ var _ = Describe("artist", func() {
 			Expect(result.Biography).To(Equal("A biography"))
 		})
 
+		It("gives up with the retry_later token instead of trying the next country", func() {
+			host.ConfigMock.On("Get", configCountries).Return("br,us", true)
+			host.ConfigMock.On("GetInt", configCacheTTLDays).Return(int64(7), true)
+			host.KVStoreMock.On("Get", "page:12345:br").Return(nil, false, nil)
+			host.KVStoreMock.On("Get", "page:12345:us").Return(nil, false, nil)
+			host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{
+				StatusCode: 429,
+				Headers:    map[string]string{"Retry-After": "11"},
+			}, nil)
+
+			_, err := fetchArtistPage(12345, fieldBiography)
+			Expect(err).To(MatchError(ContainSubstring("agent(retry_later:11)")))
+			Expect(host.HTTPMock.Calls).To(HaveLen(1), "must not hammer the same block for every country")
+		})
+
 		It("falls back to next country when first has no wanted field", func() {
 			host.ConfigMock.On("Get", configCountries).Return("br,us", true)
 			host.ConfigMock.On("GetInt", configCacheTTLDays).Return(int64(7), true)

@@ -38,6 +38,8 @@ github.com/navidrome/navidrome/plugins/pdk/go v0.0.0-20260303204839-f03ca44a8ec4
 github.com/navidrome/navidrome/plugins/pdk/go v0.0.0-20260303204839-f03ca44a8ec4/go.mod h1:5aedoevIXlwUFuR7kbd/WkjaiLg87D3XUFRGIwDBroo=
 github.com/navidrome/navidrome/plugins/pdk/go v0.0.0-20260619160058-3a14faa033a8 h1:Q35Sz2fUODmHtsm5btOfdMTiU5lKXKz06WWzION82Vg=
 github.com/navidrome/navidrome/plugins/pdk/go v0.0.0-20260619160058-3a14faa033a8/go.mod h1:5aedoevIXlwUFuR7kbd/WkjaiLg87D3XUFRGIwDBroo=
+github.com/navidrome/navidrome/plugins/pdk/go v0.0.0-20260903032931-afb3a2f881a2 h1:Q3cGst+/EObKRCpN5whmGObcfzTQGF07UrUwd6WobdU=
+github.com/navidrome/navidrome/plugins/pdk/go v0.0.0-20260903032931-afb3a2f881a2/go.mod h1:5aedoevIXlwUFuR7kbd/WkjaiLg87D3XUFRGIwDBroo=
 github.com/onsi/ginkgo/v2 v2.28.1 h1:S4hj+HbZp40fNKuLUQOYLDgZLwNUVn19N3Atb98NCyI=
 github.com/onsi/ginkgo/v2 v2.28.1/go.mod h1:CLtbVInNckU3/+gC8LzkGUb9oF+e8W8TdUsxPwvdOgE=
 github.com/onsi/ginkgo/v2 v2.31.0 h1:GtuJos5DFUV9EerYJo8RhYxosYNGvOdDE5haKq6Grfs=

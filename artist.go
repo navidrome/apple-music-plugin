@@ -295,6 +295,10 @@ func fetchArtistPage(artistID int64, wantField pageField) (*parsedPageData, erro
 		pdk.Log(pdk.LogDebug, "fetching Apple Music page: "+pageURL)
 
 		body, statusCode, err := httpGet(pageURL)
+		if isThrottled(err) {
+			pdk.Log(pdk.LogWarn, fmt.Sprintf("artist page throttled for country %s, giving up: %s", country, err))
+			return nil, err
+		}
 		if err != nil {
 			pdk.Log(pdk.LogWarn, fmt.Sprintf("failed to fetch page for country %s: %s", country, err.Error()))
 			continue

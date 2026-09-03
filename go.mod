@@ -3,7 +3,7 @@ module github.com/navidrome/apple-music-plugin
 go 1.25.0
 
 require (
-	github.com/navidrome/navidrome/plugins/pdk/go v0.0.0-20260619160058-3a14faa033a8
+	github.com/navidrome/navidrome/plugins/pdk/go v0.0.0-20260903032931-afb3a2f881a2
 	github.com/onsi/ginkgo/v2 v2.31.0
 	github.com/onsi/gomega v1.42.0
 	github.com/stretchr/testify v1.11.1

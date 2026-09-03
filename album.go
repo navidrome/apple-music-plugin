@@ -229,7 +229,7 @@ func parseAlbumDescription(html []byte) string {
 
 // The second return value reports whether any fetch succeeded, so the caller
 // can distinguish "no notes" (cacheable) from "all fetches failed" (retry later).
-func fetchAlbumDescription(collectionViewURL string) (string, bool) {
+func fetchAlbumDescription(collectionViewURL string) (string, bool, error) {
 	countries := getCountries()
 	anySuccess := false
 	for _, country := range countries {
@@ -237,6 +237,10 @@ func fetchAlbumDescription(collectionViewURL string) (string, bool) {
 		pdk.Log(pdk.LogDebug, "fetching Apple Music album page: "+pageURL)
 
 		body, statusCode, err := httpGet(pageURL)
+		if isThrottled(err) {
+			pdk.Log(pdk.LogWarn, fmt.Sprintf("album page throttled for country %s, giving up: %s", country, err))
+			return "", anySuccess, err
+		}
 		if err != nil {
 			pdk.Log(pdk.LogWarn, fmt.Sprintf("failed to fetch album page for country %s: %s", country, err.Error()))
 			continue
@@ -248,10 +252,10 @@ func fetchAlbumDescription(collectionViewURL string) (string, bool) {
 
 		anySuccess = true
 		if description := parseAlbumDescription(body); description != "" {
-			return description, true
+			return description, true, nil
 		}
 	}
-	return "", anySuccess
+	return "", anySuccess, nil
 }
 
 var albumURLCountryRegex = regexp.MustCompile(`^(https?://music\.apple\.com/)[a-z]{2}(/album/)`)

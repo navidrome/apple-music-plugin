@@ -210,3 +210,65 @@ var _ = Describe("helpers", func() {
 		})
 	})
 })
+
+var _ = Describe("throttleError", func() {
+	It("asks for the delay iTunes named on a 429", func() {
+		err := throttleError(429, map[string]string{"Retry-After": "11"})
+		Expect(err).To(MatchError(ContainSubstring("agent(retry_later:11)")))
+	})
+
+	It("reads Retry-After regardless of header case", func() {
+		err := throttleError(429, map[string]string{"retry-after": "11"})
+		Expect(err).To(MatchError(ContainSubstring("agent(retry_later:11)")))
+	})
+
+	It("falls back to a default delay when a 429 names none", func() {
+		err := throttleError(429, nil)
+		Expect(err).To(MatchError(ContainSubstring("agent(retry_later:30)")))
+	})
+
+	It("ignores an unparseable Retry-After", func() {
+		err := throttleError(429, map[string]string{"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"})
+		Expect(err).To(MatchError(ContainSubstring("agent(retry_later:30)")))
+	})
+
+	It("parks the agent for an hour on a 403 block", func() {
+		err := throttleError(403, nil)
+		Expect(err).To(MatchError(ContainSubstring("agent(retry_later:3600)")))
+	})
+
+	It("returns nil for a successful response", func() {
+		Expect(throttleError(200, nil)).To(BeNil())
+	})
+
+	It("returns nil for a not-found, which is a real answer", func() {
+		Expect(throttleError(404, nil)).To(BeNil())
+	})
+})
+
+var _ = Describe("httpGetJSON throttling", func() {
+	It("surfaces the retry_later token when iTunes throttles", func() {
+		host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{
+			StatusCode: 429,
+			Headers:    map[string]string{"Retry-After": "11"},
+		}, nil)
+
+		err := httpGetJSON("https://itunes.apple.com/search?term=x", &struct{}{})
+		Expect(err).To(MatchError(ContainSubstring("agent(retry_later:11)")))
+	})
+
+	It("surfaces the retry_later token when iTunes blocks us", func() {
+		host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{StatusCode: 403}, nil)
+
+		err := httpGetJSON("https://itunes.apple.com/search?term=x", &struct{}{})
+		Expect(err).To(MatchError(ContainSubstring("agent(retry_later:3600)")))
+	})
+
+	It("reports other failures without asking for a delay", func() {
+		host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{StatusCode: 500}, nil)
+
+		err := httpGetJSON("https://itunes.apple.com/search?term=x", &struct{}{})
+		Expect(err).To(MatchError(ContainSubstring("returned status 500")))
+		Expect(err.Error()).ToNot(ContainSubstring("retry_later"))
+	})
+})

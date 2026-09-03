@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/navidrome/navidrome/plugins/pdk/go/host"
@@ -92,13 +94,56 @@ func httpGet(rawURL string) ([]byte, int32, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	return resp.Body, resp.StatusCode, nil
+	return resp.Body, resp.StatusCode, throttleError(resp.StatusCode, resp.Headers)
+}
+
+const (
+	throttleDelaySeconds = 30
+	// A 403 block lasts ~2h and announces itself in no header, but an hour is the longest delay
+	// Navidrome honours; it re-probes after that and a still-blocked pool parks the agent again.
+	blockedDelaySeconds = 3600
+)
+
+// throttleErr renders the token Navidrome parses as a request to back off for a named delay, so
+// one answer parks the agent rather than the five consecutive faults its breaker otherwise needs.
+type throttleErr struct{ seconds int }
+
+func (e *throttleErr) Error() string { return fmt.Sprintf("agent(retry_later:%d)", e.seconds) }
+
+func throttleError(statusCode int32, headers map[string]string) error {
+	switch statusCode {
+	case 429:
+		return &throttleErr{retryAfterSeconds(headers)}
+	case 403:
+		return &throttleErr{blockedDelaySeconds}
+	default:
+		return nil
+	}
+}
+
+// Every storefront shares one rate limit and block, so trying the next country cannot help.
+func isThrottled(err error) bool {
+	var t *throttleErr
+	return errors.As(err, &t)
+}
+
+// A 403 sends no Retry-After and a 429 may send an HTTP-date; both fall back to the default.
+func retryAfterSeconds(headers map[string]string) int {
+	for k, v := range headers {
+		if !strings.EqualFold(k, "Retry-After") {
+			continue
+		}
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+			return n
+		}
+	}
+	return throttleDelaySeconds
 }
 
 func httpGetJSON(rawURL string, target any) error {
 	body, statusCode, err := httpGet(rawURL)
 	if err != nil {
-		return fmt.Errorf("request failed: %w", err)
+		return fmt.Errorf("request failed (status %d): %w", statusCode, err)
 	}
 	if statusCode != 200 {
 		return fmt.Errorf("returned status %d", statusCode)
