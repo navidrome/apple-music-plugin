@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/navidrome/navidrome/plugins/pdk/go/host"
+	"github.com/navidrome/navidrome/plugins/pdk/go/metadata"
 	"github.com/stretchr/testify/mock"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -348,5 +349,38 @@ var _ = Describe("album", func() {
 			Expect(stripTrackingParams("https://music.apple.com/us/album/1989/1")).
 				To(Equal("https://music.apple.com/us/album/1989/1"))
 		})
+	})
+})
+
+var _ = Describe("fetchAlbumDescription throttling", func() {
+	It("stops after a throttled response instead of trying the next country", func() {
+		host.ConfigMock.On("Get", configCountries).Return("br,us", true)
+		host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{
+			StatusCode: 429,
+			Headers:    map[string]string{"Retry-After": "11"},
+		}, nil)
+
+		description, ok, err := fetchAlbumDescription("https://music.apple.com/br/album/x/1")
+		Expect(description).To(BeEmpty())
+		Expect(ok).To(BeFalse())
+		Expect(err).To(MatchError(ContainSubstring("agent(retry_later:11)")))
+		Expect(host.HTTPMock.Calls).To(HaveLen(1), "must not hammer the same block for every country")
+	})
+
+	It("reports the throttle to the host instead of a successful album info", func() {
+		host.ConfigMock.On("Get", configCountries).Return("us", true)
+		host.KVStoreMock.On("Get", "album_info:artist:album").Return(nil, false, nil)
+		host.KVStoreMock.On("Get", "album:artist:album").Return(mustMarshal(cachedAlbumMatch{
+			ArtworkURL:        "https://example.com/a.jpg",
+			CollectionViewURL: "https://music.apple.com/us/album/album/1",
+		}), true, nil)
+		host.HTTPMock.On("Send", mock.Anything).Return(&host.HTTPResponse{
+			StatusCode: 429,
+			Headers:    map[string]string{"Retry-After": "11"},
+		}, nil)
+
+		a := &appleMusicAgent{}
+		_, err := a.GetAlbumInfo(metadata.AlbumRequest{Name: "Album", Artist: "Artist"})
+		Expect(err).To(MatchError(ContainSubstring("agent(retry_later:11)")))
 	})
 })

@@ -286,7 +286,10 @@ func (a *appleMusicAgent) GetAlbumInfo(input metadata.AlbumRequest) (*metadata.A
 		URL:  match.CollectionViewURL,
 	}
 
-	description, fetched := fetchAlbumDescription(match.CollectionViewURL)
+	description, fetched, err := fetchAlbumDescription(match.CollectionViewURL)
+	if err != nil {
+		return nil, err
+	}
 	resp.Description = description
 	if !fetched {
 		// All country fetches failed: return URL but don't cache, so the next call retries.
