@@ -2,11 +2,11 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/navidrome/navidrome/plugins/pdk/go/host"
 	"github.com/navidrome/navidrome/plugins/pdk/go/metadata"
@@ -85,6 +85,9 @@ func clampLimit(limit, total int) int {
 }
 
 func httpGet(rawURL string) ([]byte, int32, error) {
+	if left := cooldownRemaining(); left > 0 {
+		return nil, 0, &throttleErr{left}
+	}
 	resp, err := host.HTTPSend(host.HTTPRequest{
 		Method:    "GET",
 		URL:       rawURL,
@@ -102,6 +105,7 @@ const (
 	// A 403 block lasts ~2h and announces itself in no header, but an hour is the longest delay
 	// Navidrome honours; it re-probes after that and a still-blocked pool parks the agent again.
 	blockedDelaySeconds = 3600
+	cooldownKey         = "apple:cooldown"
 )
 
 // throttleErr renders the token Navidrome parses as a request to back off for a named delay, so
@@ -110,21 +114,49 @@ type throttleErr struct{ seconds int }
 
 func (e *throttleErr) Error() string { return fmt.Sprintf("agent(retry_later:%d)", e.seconds) }
 
+// throttleError parks the whole agent, since Navidrome's breaker is per-agent and a metadata
+// call would otherwise keep hammering an API the artwork path just backed off from.
+// Both hosts count: missing content on music.apple.com is a 404, so its 403 means blocked,
+// and it shares the daiquiri origin that blocks itunes.apple.com.
 func throttleError(statusCode int32, headers map[string]string) error {
+	var seconds int
 	switch statusCode {
 	case 429:
-		return &throttleErr{retryAfterSeconds(headers)}
+		seconds = retryAfterSeconds(headers)
 	case 403:
-		return &throttleErr{blockedDelaySeconds}
+		seconds = blockedDelaySeconds
 	default:
 		return nil
 	}
+	startCooldown(seconds)
+	return &throttleErr{seconds}
+}
+
+// startCooldown stores the deadline so the delay we report shrinks as it elapses; the TTL then
+// expires the key on its own.
+func startCooldown(seconds int) {
+	if err := host.CacheSetInt(cooldownKey, time.Now().Add(time.Duration(seconds)*time.Second).Unix(), int64(seconds)); err != nil {
+		pdk.Log(pdk.LogWarn, "failed to record Apple cooldown: "+err.Error())
+	}
+}
+
+// cooldownRemaining is how many seconds Apple still wants us to wait, or 0 if we are clear.
+func cooldownRemaining() int {
+	deadline, ok, err := host.CacheGetInt(cooldownKey)
+	if err != nil || !ok {
+		return 0
+	}
+	if left := int(deadline - time.Now().Unix()); left > 0 {
+		return left
+	}
+	return 0
 }
 
 // Every storefront shares one rate limit and block, so trying the next country cannot help.
+// Not errors.As: it reaches reflectlite.AssignableTo, which TinyGo traps on, killing every call.
 func isThrottled(err error) bool {
-	var t *throttleErr
-	return errors.As(err, &t)
+	_, ok := err.(*throttleErr)
+	return ok
 }
 
 // A 403 sends no Retry-After and a 429 may send an HTTP-date; both fall back to the default.

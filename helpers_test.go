@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	"github.com/navidrome/navidrome/plugins/pdk/go/host"
 	"github.com/stretchr/testify/mock"
 
@@ -270,5 +272,54 @@ var _ = Describe("httpGetJSON throttling", func() {
 		err := httpGetJSON("https://itunes.apple.com/search?term=x", &struct{}{})
 		Expect(err).To(MatchError(ContainSubstring("returned status 500")))
 		Expect(err.Error()).ToNot(ContainSubstring("retry_later"))
+	})
+})
+
+var _ = Describe("apple cooldown", func() {
+	const pages = "https://music.apple.com/us/artist/-/123"
+
+	It("parks on an iTunes 429 for the delay Apple named", func() {
+		host.CacheMock.ExpectedCalls = nil
+		host.CacheMock.On("GetInt", cooldownKey).Return(int64(0), false, nil)
+		host.CacheMock.On("SetInt", cooldownKey, mock.Anything, int64(11)).Return(nil)
+		err := throttleError(429, map[string]string{"Retry-After": "11"})
+		Expect(err).To(MatchError(ContainSubstring("agent(retry_later:11)")))
+		host.CacheMock.AssertCalled(GinkgoT(), "SetInt", cooldownKey, mock.Anything, int64(11))
+	})
+
+	It("parks on an iTunes 403 for an hour", func() {
+		host.CacheMock.ExpectedCalls = nil
+		host.CacheMock.On("GetInt", cooldownKey).Return(int64(0), false, nil)
+		host.CacheMock.On("SetInt", cooldownKey, mock.Anything, int64(3600)).Return(nil)
+		err := throttleError(403, nil)
+		Expect(err).To(MatchError(ContainSubstring("agent(retry_later:3600)")))
+	})
+
+	It("parks on a page 403 too, since missing content there is a 404", func() {
+		host.CacheMock.ExpectedCalls = nil
+		host.CacheMock.On("GetInt", cooldownKey).Return(int64(0), false, nil)
+		host.CacheMock.On("SetInt", cooldownKey, mock.Anything, int64(3600)).Return(nil)
+		Expect(throttleError(403, nil)).To(MatchError(ContainSubstring("agent(retry_later:3600)")))
+	})
+
+	It("refuses every request while parked, without touching the network", func() {
+		host.CacheMock.ExpectedCalls = nil
+		host.CacheMock.On("GetInt", cooldownKey).Return(time.Now().Add(90*time.Second).Unix(), true, nil)
+
+		_, _, err := httpGet(pages)
+		Expect(err).To(MatchError(ContainSubstring("agent(retry_later:")))
+		Expect(host.HTTPMock.Calls).To(BeEmpty(), "parked means no request goes out")
+	})
+
+	It("reports the time left, not the original delay", func() {
+		host.CacheMock.ExpectedCalls = nil
+		host.CacheMock.On("GetInt", cooldownKey).Return(time.Now().Add(42*time.Second).Unix(), true, nil)
+		Expect(cooldownRemaining()).To(BeNumerically("~", 42, 1))
+	})
+
+	It("is not parked once the deadline has passed", func() {
+		host.CacheMock.ExpectedCalls = nil
+		host.CacheMock.On("GetInt", cooldownKey).Return(time.Now().Add(-5*time.Second).Unix(), true, nil)
+		Expect(cooldownRemaining()).To(BeZero())
 	})
 })
