@@ -140,6 +140,9 @@
     "kvstore": {
       "reason": "Cache artist ID mappings and scraped metadata to reduce API calls",
       "maxSize": "10MB"
+    },
+    "cache": {
+      "reason": "Remember when Apple asked us to back off, so a rate limit hit by one capability stops the others too"
     }
   }
 }

@@ -29,7 +29,12 @@ func resetMocks() {
 	host.KVStoreMock.Calls = nil
 	host.HTTPMock.ExpectedCalls = nil
 	host.HTTPMock.Calls = nil
+	host.CacheMock.ExpectedCalls = nil
+	host.CacheMock.Calls = nil
 	pdk.PDKMock.On("Log", mock.Anything, mock.Anything).Maybe()
+	// Default to "not parked"; specs that test the cooldown clear these first.
+	host.CacheMock.On("GetInt", cooldownKey).Return(int64(0), false, nil).Maybe()
+	host.CacheMock.On("SetInt", cooldownKey, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// Default all capabilities to enabled (not set = enabled)
 	host.ConfigMock.On("Get", configArtistURL).Return("", false).Maybe()
